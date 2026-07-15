@@ -186,6 +186,7 @@ def test_goal_lifetime_and_monotonic_deadline() -> None:
     assert runtime.begin_goal("episode-1", timeout_seconds=2.0).accepted
     assert runtime.snapshot().runtime_state is RuntimeState.WAITING_FOR_OBSERVATION
     assert runtime.remaining_goal_seconds("episode-1") == 2.0
+    assert runtime.goal_elapsed_seconds("episode-1") == 0.0
     assert runtime.goal_timed_out("episode-1") is False
 
     clock.advance(0.75)
@@ -193,6 +194,7 @@ def test_goal_lifetime_and_monotonic_deadline() -> None:
     assert runtime.snapshot().runtime_state is RuntimeState.RUNNING
     assert runtime.snapshot().goal_elapsed_ms == 750.0
     assert runtime.remaining_goal_seconds("episode-1") == 1.25
+    assert runtime.goal_elapsed_seconds("episode-1") == 0.75
 
     clock.advance(1.25)
     assert runtime.goal_timed_out("episode-1") is True
@@ -214,6 +216,7 @@ def test_goal_lifetime_and_monotonic_deadline() -> None:
     assert snapshot.episode_id == "episode-1"
     assert snapshot.last_termination_reason == "goal_timeout"
     assert snapshot.goal_elapsed_ms == 2000.0
+    assert runtime.goal_elapsed_seconds("episode-1") is None
 
 
 def test_zero_goal_timeout_disables_deadline() -> None:

@@ -8,14 +8,22 @@ mock_manipulator:
     initial_positions: [0.5, -0.4, 0.3, -0.2, 0.1, -0.5]
     goal_tolerance: 0.005
 
+mock_rgb_camera:
+  ros__parameters:
+    publish_rate_hz: 20.0
+    width: 64
+    height: 48
+    frame_id: camera_rgb_optical_frame
+    topic_name: /camera/rgb/image_raw
+
 policy_server:
   ros__parameters:
     action_name: execute_policy
     joint_state_topic: /joint_states
     joint_command_topic: /joint_command
     image_topic: /camera/rgb/image_raw
-    observation_mode: joint_only
-    policy_backend: scripted
+    observation_mode: rgb_joint
+    policy_backend: multimodal_scripted
     inference_timeout_seconds: 1.0
     joint_state_timeout_seconds: 1.0
     image_timeout_seconds: 1.0

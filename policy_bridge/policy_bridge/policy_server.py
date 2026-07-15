@@ -1,4 +1,4 @@
-"""ROS 2 action server with deterministic M1 runtime fault handling."""
+"""ROS 2 action server with deterministic M1 faults and M2 observations."""
 
 from __future__ import annotations
 
@@ -10,20 +10,41 @@ from concurrent.futures import CancelledError, Future, ThreadPoolExecutor
 from dataclasses import dataclass
 from typing import Final
 
+import message_filters
 import numpy as np
 import rclpy
 from diagnostic_msgs.msg import DiagnosticArray, DiagnosticStatus, KeyValue
 from rclpy.action import ActionServer, CancelResponse, GoalResponse
 from rclpy.action.server import ServerGoalHandle
-from rclpy.callback_groups import ReentrantCallbackGroup
+from rclpy.callback_groups import MutuallyExclusiveCallbackGroup, ReentrantCallbackGroup
 from rclpy.executors import ExternalShutdownException, MultiThreadedExecutor
 from rclpy.node import Node
-from sensor_msgs.msg import JointState
+from rclpy.qos import DurabilityPolicy, HistoryPolicy, QoSProfile, ReliabilityPolicy
+from sensor_msgs.msg import Image, JointState
 from std_msgs.msg import Float64MultiArray
 
 from policy_bridge_interfaces.action import ExecutePolicy
 
 from .action_validation import JOINT_COUNT, validate_action
+from .observation import (
+    DEFAULT_MAX_IMAGE_PIXELS,
+    MAX_CONFIGURABLE_IMAGE_PIXELS,
+    ImageValidationError,
+    ObservationSnapshot,
+    image_data_to_rgb,
+    validate_image_layout,
+)
+from .observation_runtime import (
+    JOINT_ONLY,
+    RGB_JOINT,
+    ObservationEpoch,
+    ObservationHealthSnapshot,
+    ObservationStore,
+    validate_backend_observation_mode,
+    validate_observation_mode,
+    validate_sync_queue_size,
+    validate_sync_slop_seconds,
+)
 from .policy_backend import PolicyBackend, create_policy_backend
 from .runtime_state import (
     GoalAdmission,
@@ -48,6 +69,10 @@ _POLICY_FAULT_REASONS: Final[frozenset[str]] = frozenset(
 _OBSERVATION_FAULT_REASONS: Final[frozenset[str]] = frozenset(
     {"observation_timeout", "stale_observation"}
 )
+_IMAGE_FAULT_REASONS: Final[frozenset[str]] = frozenset(
+    {"image_timeout", "stale_image", "invalid_image"}
+)
+_SYNCHRONIZATION_FAULT_REASONS: Final[frozenset[str]] = frozenset({"observation_sync_timeout"})
 
 
 @dataclass(frozen=True, slots=True)
@@ -81,16 +106,23 @@ class PolicyActionServer(Node):
     """Execute a synchronous policy through a bounded, fault-aware ROS runtime."""
 
     def __init__(self) -> None:
-        """Validate parameters and create the M1 action, I/O, worker, and diagnostics."""
+        """Validate parameters and create the action, observations, worker, and diagnostics."""
 
         super().__init__("policy_server")
 
         self.declare_parameter("action_name", "execute_policy")
         self.declare_parameter("joint_state_topic", "/joint_states")
         self.declare_parameter("joint_command_topic", "/joint_command")
+        self.declare_parameter("image_topic", "/camera/rgb/image_raw")
+        self.declare_parameter("observation_mode", JOINT_ONLY)
         self.declare_parameter("policy_backend", "scripted")
         self.declare_parameter("inference_timeout_seconds", 1.0)
         self.declare_parameter("joint_state_timeout_seconds", 1.0)
+        self.declare_parameter("image_timeout_seconds", 1.0)
+        self.declare_parameter("synchronized_observation_timeout_seconds", 1.0)
+        self.declare_parameter("sync_queue_size", 10)
+        self.declare_parameter("sync_slop_seconds", 0.05)
+        self.declare_parameter("max_image_pixels", DEFAULT_MAX_IMAGE_PIXELS)
         self.declare_parameter("diagnostics_rate_hz", 1.0)
         self.declare_parameter("delayed_policy_delay_seconds", 2.0)
         self.declare_parameter("delayed_policy_first_call_only", True)
@@ -101,7 +133,12 @@ class PolicyActionServer(Node):
         self._action_name = str(self.get_parameter("action_name").value)
         self._joint_state_topic = str(self.get_parameter("joint_state_topic").value)
         self._joint_command_topic = str(self.get_parameter("joint_command_topic").value)
-        backend_selector = str(self.get_parameter("policy_backend").value)
+        self._image_topic = str(self.get_parameter("image_topic").value)
+        observation_mode = validate_observation_mode(self.get_parameter("observation_mode").value)
+        backend_selector, observation_mode = validate_backend_observation_mode(
+            self.get_parameter("policy_backend").value,
+            observation_mode,
+        )
         inference_timeout_seconds = _positive_finite_parameter(
             "inference_timeout_seconds",
             self.get_parameter("inference_timeout_seconds").value,
@@ -109,6 +146,21 @@ class PolicyActionServer(Node):
         joint_state_timeout_seconds = _positive_finite_parameter(
             "joint_state_timeout_seconds",
             self.get_parameter("joint_state_timeout_seconds").value,
+        )
+        image_timeout_seconds = _positive_finite_parameter(
+            "image_timeout_seconds",
+            self.get_parameter("image_timeout_seconds").value,
+        )
+        synchronized_observation_timeout_seconds = _positive_finite_parameter(
+            "synchronized_observation_timeout_seconds",
+            self.get_parameter("synchronized_observation_timeout_seconds").value,
+        )
+        sync_queue_size = validate_sync_queue_size(self.get_parameter("sync_queue_size").value)
+        sync_slop_seconds = validate_sync_slop_seconds(
+            self.get_parameter("sync_slop_seconds").value
+        )
+        self._max_image_pixels = _max_image_pixels_parameter(
+            self.get_parameter("max_image_pixels").value
         )
         diagnostics_rate_hz = _positive_finite_parameter(
             "diagnostics_rate_hz",
@@ -134,6 +186,8 @@ class PolicyActionServer(Node):
             raise ValueError("action_name must not be empty")
         if not self._joint_state_topic or not self._joint_command_topic:
             raise ValueError("joint-state and joint-command topics must not be empty")
+        if observation_mode == RGB_JOINT and not self._image_topic:
+            raise ValueError("image_topic must not be empty in rgb_joint mode")
 
         self._policy: PolicyBackend = create_policy_backend(
             backend_selector,
@@ -146,10 +200,18 @@ class PolicyActionServer(Node):
             inference_timeout_seconds=inference_timeout_seconds,
             joint_state_timeout_seconds=joint_state_timeout_seconds,
         )
+        self._observations = ObservationStore(
+            observation_mode=observation_mode,
+            image_timeout_seconds=image_timeout_seconds,
+            synchronized_observation_timeout_seconds=(synchronized_observation_timeout_seconds),
+            sync_queue_size=sync_queue_size,
+            sync_slop_seconds=sync_slop_seconds,
+        )
 
         self._latest_joint_positions: np.ndarray | None = None
         self._joint_state_lock = threading.Lock()
         self._command_gate_lock = threading.RLock()
+        self._active_goal_observation_epoch: ObservationEpoch | None = None
         self._finalization_lock = threading.RLock()
         self._finalized_episode_id = ""
         self._finalized_result: ExecutePolicy.Result | None = None
@@ -159,6 +221,8 @@ class PolicyActionServer(Node):
         self._shutdown_requested = threading.Event()
         self._execution_wake_event = threading.Event()
         self._last_joint_state_warning_time = float("-inf")
+        self._last_image_warning_time = float("-inf")
+        self._last_sync_warning_time = float("-inf")
 
         self._policy_executor = ThreadPoolExecutor(
             max_workers=1,
@@ -166,17 +230,59 @@ class PolicyActionServer(Node):
         )
 
         self._callback_group = ReentrantCallbackGroup()
+        self._observation_callback_group = MutuallyExclusiveCallbackGroup()
         self._command_publisher = self.create_publisher(
             Float64MultiArray, self._joint_command_topic, 10
         )
         self._diagnostics_publisher = self.create_publisher(DiagnosticArray, DIAGNOSTICS_TOPIC, 10)
-        self._joint_state_subscription = self.create_subscription(
-            JointState,
-            self._joint_state_topic,
-            self._joint_state_callback,
-            10,
-            callback_group=self._callback_group,
-        )
+        sensor_qos = _sensor_data_qos(sync_queue_size)
+        self._joint_state_subscription = None
+        self._joint_filter_subscriber = None
+        self._image_filter_subscriber = None
+        self._validated_joint_filter = None
+        self._validated_image_filter = None
+        self._time_synchronizer = None
+        if observation_mode == JOINT_ONLY:
+            self._joint_state_subscription = self.create_subscription(
+                JointState,
+                self._joint_state_topic,
+                self._joint_state_callback,
+                sensor_qos,
+                callback_group=self._observation_callback_group,
+            )
+        else:
+            self._joint_filter_subscriber = message_filters.Subscriber(
+                self,
+                JointState,
+                self._joint_state_topic,
+                qos_profile=sensor_qos,
+                callback_group=self._observation_callback_group,
+            )
+            self._image_filter_subscriber = message_filters.Subscriber(
+                self,
+                Image,
+                self._image_topic,
+                qos_profile=sensor_qos,
+                callback_group=self._observation_callback_group,
+            )
+            self._validated_joint_filter = message_filters.SimpleFilter()
+            self._validated_image_filter = message_filters.SimpleFilter()
+            self._joint_filter_subscriber.registerCallback(self._joint_filter_callback)
+            self._image_filter_subscriber.registerCallback(self._image_filter_callback)
+            filters = [self._validated_joint_filter, self._validated_image_filter]
+            if sync_slop_seconds == 0.0:
+                self._time_synchronizer = message_filters.TimeSynchronizer(
+                    filters,
+                    sync_queue_size,
+                )
+            else:
+                self._time_synchronizer = message_filters.ApproximateTimeSynchronizer(
+                    filters,
+                    sync_queue_size,
+                    sync_slop_seconds,
+                    allow_headerless=False,
+                )
+            self._time_synchronizer.registerCallback(self._synchronized_observation_callback)
         self._diagnostics_timer = self.create_timer(
             1.0 / diagnostics_rate_hz,
             self._publish_diagnostics,
@@ -194,8 +300,9 @@ class PolicyActionServer(Node):
 
         self.get_logger().info(
             f"ExecutePolicy action server ready on '{self._action_name}' with "
-            f"backend '{backend_name}'; waiting for valid joint state on "
-            f"'{self._joint_state_topic}'"
+            f"backend '{backend_name}' and observation_mode={observation_mode!r}; "
+            f"joint topic='{self._joint_state_topic}'"
+            + ("" if observation_mode == JOINT_ONLY else f", image topic='{self._image_topic}'")
         )
         self._publish_diagnostics()
 
@@ -240,6 +347,12 @@ class PolicyActionServer(Node):
                 )
             )
             return GoalResponse.REJECT
+
+        # The observation epoch is linearized before the acceptance response,
+        # so any RGB pair published after the client observes acceptance is
+        # unambiguously goal-local even if execute_callback is scheduled later.
+        with self._command_gate_lock:
+            self._active_goal_observation_epoch = self._observations.capture_epoch()
 
         del timeout_seconds  # Validation happens here; the deadline starts in execute_callback.
         with self._finalization_lock:
@@ -295,16 +408,59 @@ class PolicyActionServer(Node):
         return CancelResponse.ACCEPT
 
     def _joint_state_callback(self, message: JointState) -> None:
+        """Accept one joint-only observation and create a policy snapshot."""
+
+        self._process_joint_state(message, create_snapshot=True)
+
+    def _joint_filter_callback(self, message: JointState) -> None:
+        """Validate a raw RGB-mode joint message before entering the synchronizer."""
+
+        valid_for_synchronization = self._process_joint_state(
+            message,
+            create_snapshot=False,
+        )
+        # Never signal message_filters while holding the command gate.  Humble
+        # synchronizers invoke callbacks under their own lock, so doing so
+        # would create an ATS-lock/command-gate inversion with cancellation.
+        if valid_for_synchronization and self._validated_joint_filter is not None:
+            self._validated_joint_filter.signalMessage(message)
+
+    def _process_joint_state(
+        self,
+        message: JointState,
+        *,
+        create_snapshot: bool,
+    ) -> bool:
+        """Update hold/freshness state and optionally construct a joint-only snapshot."""
+
         prior_snapshot = self._runtime.snapshot()
         try:
             positions = self._positions_in_configured_order(message)
             validated = validate_action(positions)
+            joint_stamp_ns = _header_stamp_ns(message.header.stamp)
         except (TypeError, ValueError) as exc:
-            self._runtime.record_observation(valid=False)
+            with self._command_gate_lock:
+                self._runtime.record_observation(valid=False)
             self._warn_about_joint_state(str(exc))
             if prior_snapshot.joint_state_valid:
                 self._publish_diagnostics()
-            return
+            self._execution_wake_event.set()
+            return False
+
+        policy_snapshot: ObservationSnapshot | None = None
+        if create_snapshot:
+            sequence_id = self._observations.reserve_sequence_id()
+            policy_snapshot = ObservationSnapshot(
+                sequence_id=sequence_id,
+                joint_positions=validated,
+                joint_names=self._joint_names,
+                rgb=None,
+                joint_stamp_ns=joint_stamp_ns,
+                image_stamp_ns=None,
+                received_monotonic_ns=time.monotonic_ns(),
+                synchronization_skew_ms=None,
+                image_frame_id=None,
+            )
 
         # The command gate is the linearization point shared with conditional
         # freshness faults, cancellation, normal command publication, and
@@ -312,7 +468,160 @@ class PolicyActionServer(Node):
         with self._command_gate_lock, self._joint_state_lock:
             self._runtime.record_observation(valid=True)
             self._latest_joint_positions = validated
+            self._observations.record_joint_stamp(joint_stamp_ns)
+            if policy_snapshot is not None:
+                self._observations.commit_snapshot(policy_snapshot)
+            elif joint_stamp_ns <= 0:
+                self._observations.record_sync_error("missing_joint_header_stamp")
         if not prior_snapshot.joint_state_received or not prior_snapshot.joint_state_valid:
+            self._publish_diagnostics()
+        self._execution_wake_event.set()
+        return create_snapshot or joint_stamp_ns > 0
+
+    def _image_filter_callback(self, message: Image) -> None:
+        """Validate raw image layout before allowing it into the bounded synchronizer."""
+
+        prior_health = self._observations.snapshot()
+        try:
+            image_stamp_ns = _header_stamp_ns(message.header.stamp)
+            if image_stamp_ns <= 0:
+                raise ImageValidationError("image header stamp must be positive")
+            if not message.header.frame_id:
+                raise ImageValidationError("image frame_id must not be empty")
+            validate_image_layout(
+                height=message.height,
+                width=message.width,
+                encoding=message.encoding,
+                step=message.step,
+                data=message.data,
+                max_pixels=self._max_image_pixels,
+            )
+        except (TypeError, ValueError, ImageValidationError) as exc:
+            error = f"{type(exc).__name__}: {exc}"
+            with self._command_gate_lock:
+                self._observations.record_image(
+                    valid=False,
+                    stamp_ns=_safe_header_stamp_ns(message.header.stamp),
+                    encoding=str(message.encoding),
+                    width=int(message.width),
+                    height=int(message.height),
+                    frame_id=str(message.header.frame_id),
+                    error=error,
+                )
+            self._warn_about_image(error)
+            self._execution_wake_event.set()
+            if not prior_health.image_received or prior_health.image_valid:
+                self._publish_diagnostics()
+            return
+
+        with self._command_gate_lock:
+            self._observations.record_image(
+                valid=True,
+                stamp_ns=image_stamp_ns,
+                encoding=message.encoding,
+                width=message.width,
+                height=message.height,
+                frame_id=message.header.frame_id,
+            )
+        self._execution_wake_event.set()
+        if not prior_health.image_received or not prior_health.image_valid:
+            self._publish_diagnostics()
+        if self._validated_image_filter is not None:
+            self._validated_image_filter.signalMessage(message)
+
+    def _synchronized_observation_callback(
+        self,
+        joint_message: JointState,
+        image_message: Image,
+    ) -> None:
+        """Keep user code from escaping Humble's non-reentrant synchronizer lock."""
+
+        try:
+            self._process_synchronized_observation(joint_message, image_message)
+        except Exception as exc:
+            error = f"synchronized_callback_error ({type(exc).__name__}): {exc}"
+            try:
+                with self._command_gate_lock:
+                    self._observations.record_sync_error(error)
+            except Exception as record_exc:
+                try:
+                    self.get_logger().error(
+                        "Could not record synchronized callback failure "
+                        f"({type(record_exc).__name__}): {record_exc}"
+                    )
+                except Exception:
+                    pass
+            self._execution_wake_event.set()
+            try:
+                self.get_logger().error(error + "\n" + traceback.format_exc())
+            except Exception:
+                pass
+            try:
+                self._publish_diagnostics()
+            except Exception as diagnostics_exc:
+                try:
+                    self.get_logger().error(
+                        "Synchronized callback diagnostics failed "
+                        f"({type(diagnostics_exc).__name__}): {diagnostics_exc}"
+                    )
+                except Exception:
+                    pass
+
+    def _process_synchronized_observation(
+        self,
+        joint_message: JointState,
+        image_message: Image,
+    ) -> None:
+        """Build and atomically commit one independently revalidated RGB snapshot."""
+
+        prior_health = self._observations.snapshot()
+        try:
+            positions = validate_action(self._positions_in_configured_order(joint_message))
+            joint_stamp_ns = _header_stamp_ns(joint_message.header.stamp)
+            image_stamp_ns = _header_stamp_ns(image_message.header.stamp)
+            if joint_stamp_ns <= 0 or image_stamp_ns <= 0:
+                raise ValueError("synchronized messages require positive header stamps")
+            if not image_message.header.frame_id:
+                raise ValueError("synchronized image frame_id must not be empty")
+            rgb = image_data_to_rgb(
+                height=image_message.height,
+                width=image_message.width,
+                encoding=image_message.encoding,
+                step=image_message.step,
+                data=image_message.data,
+                max_pixels=self._max_image_pixels,
+            )
+            skew_ms = abs(joint_stamp_ns - image_stamp_ns) / 1_000_000.0
+            if skew_ms > self._observations.sync_slop_seconds * 1000.0:
+                raise ValueError("synchronized pair exceeds sync_slop_seconds")
+            sequence_id = self._observations.reserve_sequence_id()
+            snapshot = ObservationSnapshot(
+                sequence_id=sequence_id,
+                joint_positions=positions,
+                joint_names=self._joint_names,
+                rgb=rgb,
+                joint_stamp_ns=joint_stamp_ns,
+                image_stamp_ns=image_stamp_ns,
+                received_monotonic_ns=time.monotonic_ns(),
+                synchronization_skew_ms=skew_ms,
+                image_frame_id=image_message.header.frame_id,
+            )
+        except (TypeError, ValueError, ImageValidationError) as exc:
+            error = f"{type(exc).__name__}: {exc}"
+            with self._command_gate_lock:
+                self._observations.record_sync_error(error)
+            self._warn_about_sync(error)
+            self._execution_wake_event.set()
+            if prior_health.last_sync_error != error:
+                self._publish_diagnostics()
+            return
+
+        with self._command_gate_lock:
+            committed = self._observations.commit_snapshot(snapshot)
+        if not committed:
+            return
+        self._execution_wake_event.set()
+        if not prior_health.synchronized_snapshot_available:
             self._publish_diagnostics()
 
     def _positions_in_configured_order(self, message: JointState) -> list[float]:
@@ -336,6 +645,18 @@ class PolicyActionServer(Node):
         if now - self._last_joint_state_warning_time >= 5.0:
             self.get_logger().warning(f"Ignoring invalid joint state: {reason}")
             self._last_joint_state_warning_time = now
+
+    def _warn_about_image(self, reason: str) -> None:
+        now = time.monotonic()
+        if now - self._last_image_warning_time >= 5.0:
+            self.get_logger().warning(f"Ignoring invalid RGB image: {reason}")
+            self._last_image_warning_time = now
+
+    def _warn_about_sync(self, reason: str) -> None:
+        now = time.monotonic()
+        if now - self._last_sync_warning_time >= 5.0:
+            self.get_logger().warning(f"Ignoring invalid synchronized pair: {reason}")
+            self._last_sync_warning_time = now
 
     def _latest_positions(self) -> np.ndarray | None:
         with self._joint_state_lock:
@@ -368,12 +689,60 @@ class PolicyActionServer(Node):
             )
             return decision or self._runtime.termination_decision(episode_id)
 
+    def _claim_multimodal_fault(
+        self,
+        episode_id: str,
+        *,
+        snapshot_wait_elapsed_seconds: float | None = None,
+        required_sequence_id: int = 0,
+        wait_epoch: ObservationEpoch | None = None,
+    ) -> TerminationDecision | None:
+        """Atomically classify and claim an M2 image or synchronization fault."""
+
+        if not self._observations.image_required:
+            return None
+        with self._command_gate_lock:
+            existing = self._runtime.termination_decision(episode_id)
+            if existing is not None:
+                return existing
+            goal_elapsed = self._runtime.goal_elapsed_seconds(episode_id)
+            if goal_elapsed is None:
+                return None
+            goal_epoch = self._active_goal_observation_epoch
+            if goal_epoch is None:
+                return None
+            reason = self._observations.image_fault_reason(
+                goal_elapsed_seconds=goal_elapsed,
+                goal_epoch=goal_epoch,
+            )
+            if (
+                reason is None
+                and snapshot_wait_elapsed_seconds is not None
+                and wait_epoch is not None
+            ):
+                reason = self._observations.sync_fault_reason(
+                    wait_elapsed_seconds=snapshot_wait_elapsed_seconds,
+                    required_sequence_id=required_sequence_id,
+                    wait_epoch=wait_epoch,
+                )
+            if reason is None:
+                return None
+            return self._runtime.claim_termination(
+                episode_id,
+                status=TerminationStatus.ABORTED,
+                reason=reason,
+                issue_hold=True,
+            )
+
     def _check_active_faults(
         self,
         episode_id: str,
         *,
         motion_started: bool,
         check_stale: bool,
+        snapshot_wait_elapsed_seconds: float | None = None,
+        required_sequence_id: int = 0,
+        wait_epoch: ObservationEpoch | None = None,
     ) -> TerminationDecision | None:
         existing = self._runtime.termination_decision(episode_id)
         if existing is not None:
@@ -400,57 +769,116 @@ class PolicyActionServer(Node):
                 decision = self._runtime.claim_stale_observation(episode_id)
                 if decision is not None:
                     return decision
-        return None
+                decision = self._runtime.claim_observation_timeout(episode_id)
+                if decision is not None:
+                    return decision
+        return self._claim_multimodal_fault(
+            episode_id,
+            snapshot_wait_elapsed_seconds=snapshot_wait_elapsed_seconds,
+            required_sequence_id=required_sequence_id,
+            wait_epoch=wait_epoch,
+        )
 
-    def _wait_for_initial_observation(
+    def _wait_for_snapshot(
         self,
         episode_id: str,
-    ) -> tuple[np.ndarray | None, TerminationDecision | None]:
-        """Wait for the first valid local observation with bounded monotonic polling."""
+        *,
+        after_sequence_id: int,
+        not_before_monotonic: float,
+        motion_started: bool,
+    ) -> tuple[ObservationSnapshot | None, TerminationDecision | None]:
+        """Wait for one fresh, newer policy snapshot with bounded monotonic polling."""
 
         self._runtime.mark_waiting_for_observation(episode_id)
         waiting_started = time.monotonic()
+        wait_epoch = self._observations.capture_epoch()
         while True:
+            now = time.monotonic()
+            wait_elapsed = max(0.0, now - waiting_started)
             decision = self._check_active_faults(
                 episode_id,
-                motion_started=False,
+                motion_started=motion_started,
                 check_stale=True,
+                snapshot_wait_elapsed_seconds=wait_elapsed,
+                required_sequence_id=after_sequence_id,
+                wait_epoch=wait_epoch,
             )
             if decision is not None:
                 return None, decision
 
-            positions = self._latest_positions()
-            if positions is not None:
+            snapshot = self._observations.latest_snapshot(after_sequence_id=after_sequence_id)
+            if snapshot is not None and now >= not_before_monotonic:
                 self._runtime.mark_running(episode_id)
-                self._publish_diagnostics()
-                return positions, None
+                return snapshot, None
 
-            observation_elapsed = time.monotonic() - waiting_started
-            if observation_elapsed >= self._runtime.joint_state_timeout_seconds:
+            goal_elapsed = self._runtime.goal_elapsed_seconds(episode_id)
+            if (
+                goal_elapsed is not None
+                and not self._runtime.has_valid_observation()
+                and goal_elapsed >= self._runtime.joint_state_timeout_seconds
+            ):
                 with self._command_gate_lock:
                     decision = self._runtime.termination_decision(episode_id)
                     if decision is None:
                         decision = self._runtime.claim_observation_timeout(episode_id)
                 if decision is not None:
                     return None, decision
-                # A valid callback won the runtime lock at the boundary.  Loop
-                # once more and read its matching positions under joint lock.
                 continue
 
-            wait_seconds = min(
-                _POLL_INTERVAL_SECONDS,
-                self._runtime.joint_state_timeout_seconds - observation_elapsed,
-            )
+            wait_seconds = _POLL_INTERVAL_SECONDS
             remaining_goal = self._runtime.remaining_goal_seconds(episode_id)
             if remaining_goal is not None:
                 wait_seconds = min(wait_seconds, remaining_goal)
+            observation_age = self._runtime.observation_age_seconds()
+            if observation_age is not None:
+                wait_seconds = min(
+                    wait_seconds,
+                    max(
+                        0.0,
+                        self._runtime.joint_state_timeout_seconds - observation_age,
+                    ),
+                )
+            elif goal_elapsed is not None:
+                wait_seconds = min(
+                    wait_seconds,
+                    max(
+                        0.0,
+                        self._runtime.joint_state_timeout_seconds - goal_elapsed,
+                    ),
+                )
+            if now < not_before_monotonic:
+                wait_seconds = min(wait_seconds, not_before_monotonic - now)
             self._execution_wake_event.wait(max(0.0, wait_seconds))
+            self._execution_wake_event.clear()
+
+    def _wait_control_period(
+        self,
+        episode_id: str,
+        control_period: float,
+        *,
+        motion_started: bool,
+    ) -> TerminationDecision | None:
+        """Preserve the M1 final-step observation window without requiring another frame."""
+
+        deadline = time.monotonic() + control_period
+        while True:
+            decision = self._check_active_faults(
+                episode_id,
+                motion_started=motion_started,
+                check_stale=True,
+            )
+            if decision is not None:
+                return decision
+            remaining = deadline - time.monotonic()
+            if remaining <= 0.0:
+                return None
+            self._execution_wake_event.wait(min(_POLL_INTERVAL_SECONDS, remaining))
             self._execution_wake_event.clear()
 
     def _submit_policy_call(
         self,
         episode_id: str,
-        positions: np.ndarray,
+        observation: ObservationSnapshot,
         instruction: str,
     ) -> _PolicyCall:
         token = self._runtime.begin_inference(episode_id)
@@ -463,7 +891,7 @@ class PolicyActionServer(Node):
             future = self._policy_executor.submit(
                 self._invoke_policy,
                 completion,
-                positions.copy(),
+                observation,
                 instruction,
             )
         except BaseException:
@@ -482,11 +910,11 @@ class PolicyActionServer(Node):
     def _invoke_policy(
         self,
         completion: _PolicyCallCompletion,
-        positions: np.ndarray,
+        observation: ObservationSnapshot,
         instruction: str,
     ) -> object:
         try:
-            return self._policy.predict(positions, instruction)
+            return self._policy.predict(observation, instruction)
         finally:
             completion.mark()
 
@@ -615,6 +1043,24 @@ class PolicyActionServer(Node):
                 )
             if decision is None:
                 decision = self._runtime.claim_stale_observation(episode_id)
+            if decision is None and self._observations.image_required:
+                goal_elapsed = self._runtime.goal_elapsed_seconds(episode_id)
+                goal_epoch = self._active_goal_observation_epoch
+                reason = (
+                    None
+                    if goal_elapsed is None or goal_epoch is None
+                    else self._observations.image_fault_reason(
+                        goal_elapsed_seconds=goal_elapsed,
+                        goal_epoch=goal_epoch,
+                    )
+                )
+                if reason is not None:
+                    decision = self._runtime.claim_termination(
+                        episode_id,
+                        status=TerminationStatus.ABORTED,
+                        reason=reason,
+                        issue_hold=True,
+                    )
             if decision is not None:
                 return False, decision
 
@@ -622,28 +1068,6 @@ class PolicyActionServer(Node):
             command.data = target.tolist()
             self._command_publisher.publish(command)
             return True, None
-
-    def _wait_control_period(
-        self,
-        episode_id: str,
-        control_period: float,
-        *,
-        motion_started: bool,
-    ) -> TerminationDecision | None:
-        deadline = time.monotonic() + control_period
-        while True:
-            decision = self._check_active_faults(
-                episode_id,
-                motion_started=motion_started,
-                check_stale=True,
-            )
-            if decision is not None:
-                return decision
-            remaining = deadline - time.monotonic()
-            if remaining <= 0.0:
-                return None
-            self._execution_wake_event.wait(min(_POLL_INTERVAL_SECONDS, remaining))
-            self._execution_wake_event.clear()
 
     def _publish_hold_position(self, decision: TerminationDecision) -> bool:
         """Publish the last valid six-joint observation once for this termination."""
@@ -771,6 +1195,11 @@ class PolicyActionServer(Node):
         request = goal_handle.request
         control_period = 1.0 / self._control_rate_hz
         motion_started = False
+        with self._command_gate_lock:
+            goal_observation_epoch = self._active_goal_observation_epoch
+            if goal_observation_epoch is None:
+                goal_observation_epoch = self._observations.capture_epoch()
+                self._active_goal_observation_epoch = goal_observation_epoch
         started = self._runtime.start_reserved_goal(
             episode_id,
             timeout_seconds=float(request.timeout_seconds),
@@ -778,6 +1207,9 @@ class PolicyActionServer(Node):
         if not started:
             self.get_logger().error("Accepted goal could not bind to the reserved runtime slot")
             self._runtime.abandon_reservation()
+            with self._command_gate_lock:
+                if self._active_goal_observation_epoch is goal_observation_epoch:
+                    self._active_goal_observation_epoch = None
             goal_handle.abort()
             result = ExecutePolicy.Result()
             result.success = False
@@ -792,11 +1224,20 @@ class PolicyActionServer(Node):
         self._publish_diagnostics()
 
         try:
-            positions, decision = self._wait_for_initial_observation(episode_id)
+            observation, decision = self._wait_for_snapshot(
+                episode_id,
+                after_sequence_id=(
+                    goal_observation_epoch.snapshot_sequence_id
+                    if self._observations.image_required
+                    else 0
+                ),
+                not_before_monotonic=0.0,
+                motion_started=False,
+            )
             if decision is not None:
                 return self._finalize_goal(goal_handle, decision)
-            if positions is None:
-                raise RuntimeError("observation wait ended without positions or termination")
+            if observation is None:
+                raise RuntimeError("snapshot wait ended without an observation or termination")
 
             try:
                 self._policy.reset()
@@ -825,19 +1266,13 @@ class PolicyActionServer(Node):
                 if decision is not None:
                     return self._finalize_goal(goal_handle, decision)
 
-                positions = self._latest_positions()
-                if positions is None:
-                    decision = self._claim_termination(
-                        episode_id,
-                        status=TerminationStatus.ABORTED,
-                        reason="observation_timeout",
-                        issue_hold=True,
-                    )
-                    if decision is None:
-                        raise RuntimeError("missing observation could not claim termination")
-                    return self._finalize_goal(goal_handle, decision)
+                positions = observation.joint_positions
 
-                call = self._submit_policy_call(episode_id, positions, request.instruction)
+                call = self._submit_policy_call(
+                    episode_id,
+                    observation,
+                    request.instruction,
+                )
                 decision = self._wait_for_policy_call(
                     episode_id,
                     call,
@@ -914,19 +1349,38 @@ class PolicyActionServer(Node):
                 if not published:
                     raise RuntimeError("policy command was neither published nor terminated")
                 motion_started = True
+                command_published_at = time.monotonic()
 
                 if distance > self._goal_tolerance:
-                    decision = self._wait_control_period(
-                        episode_id,
-                        control_period,
-                        motion_started=motion_started,
-                    )
-                    if decision is not None:
-                        return self._finalize_goal(goal_handle, decision)
+                    if step < request.max_steps:
+                        next_observation, decision = self._wait_for_snapshot(
+                            episode_id,
+                            after_sequence_id=observation.sequence_id,
+                            not_before_monotonic=command_published_at + control_period,
+                            motion_started=motion_started,
+                        )
+                        if decision is not None:
+                            return self._finalize_goal(goal_handle, decision)
+                        if next_observation is None:
+                            raise RuntimeError(
+                                "new snapshot wait ended without observation or termination"
+                            )
+                        observation = next_observation
+                    else:
+                        decision = self._wait_control_period(
+                            episode_id,
+                            control_period,
+                            motion_started=motion_started,
+                        )
+                        if decision is not None:
+                            return self._finalize_goal(goal_handle, decision)
+                        next_observation = self._observations.latest_snapshot(
+                            after_sequence_id=observation.sequence_id
+                        )
+                        if next_observation is not None:
+                            observation = next_observation
 
-                    updated_positions = self._latest_positions()
-                    if updated_positions is not None:
-                        distance = float(np.max(np.abs(target - updated_positions)))
+                    distance = float(np.max(np.abs(target - observation.joint_positions)))
                     progress = _progress(distance, initial_distance, self._goal_tolerance)
 
                 decision = self._check_active_faults(
@@ -995,6 +1449,9 @@ class PolicyActionServer(Node):
             return self._finalize_goal(goal_handle, decision)
         finally:
             self._runtime.complete_goal(episode_id)
+            with self._command_gate_lock:
+                if self._active_goal_observation_epoch is goal_observation_epoch:
+                    self._active_goal_observation_epoch = None
             snapshot = self._runtime.snapshot()
             if not snapshot.backend_busy and snapshot.runtime_state is RuntimeState.IDLE:
                 self._set_diagnostic_event(DiagnosticStatus.OK, "idle")
@@ -1010,9 +1467,10 @@ class PolicyActionServer(Node):
             return self._diagnostic_event_level, self._diagnostic_event_message
 
     def _publish_diagnostics(self) -> None:
-        """Publish one consistent three-component diagnostic snapshot."""
+        """Publish one consistent five-component diagnostic snapshot."""
 
         snapshot = self._runtime.snapshot()
+        observation_health = self._observations.snapshot()
         event_level, event_message = self._diagnostic_event()
 
         message = DiagnosticArray()
@@ -1021,6 +1479,18 @@ class PolicyActionServer(Node):
             self._runtime_diagnostic(snapshot, event_level, event_message),
             self._observation_diagnostic(snapshot, event_level, event_message),
             self._policy_diagnostic(snapshot, event_level, event_message),
+            self._image_diagnostic(
+                snapshot,
+                observation_health,
+                event_level,
+                event_message,
+            ),
+            self._synchronization_diagnostic(
+                snapshot,
+                observation_health,
+                event_level,
+                event_message,
+            ),
         ]
         self._diagnostics_publisher.publish(message)
 
@@ -1113,6 +1583,110 @@ class PolicyActionServer(Node):
             },
         )
 
+    def _image_diagnostic(
+        self,
+        runtime: RuntimeSnapshot,
+        health: ObservationHealthSnapshot,
+        event_level: int,
+        event_message: str,
+    ) -> DiagnosticStatus:
+        if not health.image_required:
+            level = DiagnosticStatus.OK
+            status_message = "disabled"
+        elif event_message in _IMAGE_FAULT_REASONS and event_level != DiagnosticStatus.OK:
+            level = DiagnosticStatus.ERROR
+            status_message = event_message
+        elif not runtime.active_goal:
+            level = DiagnosticStatus.OK
+            status_message = "image_idle"
+        elif not health.image_received:
+            level = DiagnosticStatus.WARN
+            status_message = "waiting_for_image"
+        elif not health.image_valid:
+            level = DiagnosticStatus.WARN
+            status_message = "invalid_image_waiting"
+        elif health.image_age_ms is not None and health.image_age_ms >= health.image_timeout_ms:
+            level = DiagnosticStatus.ERROR
+            status_message = "stale_image"
+        elif (
+            health.image_age_ms is not None
+            and health.image_age_ms >= health.image_timeout_ms * _OBSERVATION_WARNING_FRACTION
+        ):
+            level = DiagnosticStatus.WARN
+            status_message = "image_near_timeout"
+        else:
+            level = DiagnosticStatus.OK
+            status_message = "image_ok"
+        return _diagnostic_status(
+            name="policy_bridge/image",
+            level=level,
+            message=status_message,
+            values={
+                "image_required": _bool_text(health.image_required),
+                "image_received": _bool_text(health.image_received),
+                "image_valid": _bool_text(health.image_valid),
+                "image_age_ms": _optional_float_text(health.image_age_ms),
+                "image_timeout_ms": _float_text(health.image_timeout_ms),
+                "encoding": health.encoding,
+                "width": str(health.width),
+                "height": str(health.height),
+                "frame_id": health.frame_id,
+                "last_image_error": health.last_image_error,
+            },
+        )
+
+    def _synchronization_diagnostic(
+        self,
+        runtime: RuntimeSnapshot,
+        health: ObservationHealthSnapshot,
+        event_level: int,
+        event_message: str,
+    ) -> DiagnosticStatus:
+        if not health.image_required:
+            level = DiagnosticStatus.OK
+            status_message = "disabled"
+        elif event_message in _SYNCHRONIZATION_FAULT_REASONS and event_level != DiagnosticStatus.OK:
+            level = DiagnosticStatus.ERROR
+            status_message = event_message
+        elif not runtime.active_goal:
+            level = DiagnosticStatus.OK
+            status_message = "synchronization_idle"
+        elif runtime.runtime_state is RuntimeState.WAITING_FOR_OBSERVATION:
+            level = DiagnosticStatus.WARN
+            status_message = (
+                "waiting_for_synchronization"
+                if not health.synchronized_snapshot_available
+                else "waiting_for_new_synchronization"
+            )
+        elif not health.synchronized_snapshot_available:
+            level = DiagnosticStatus.WARN
+            status_message = "waiting_for_synchronization"
+        elif health.current_sync_error:
+            level = DiagnosticStatus.WARN
+            status_message = "synchronization_waiting"
+        else:
+            level = DiagnosticStatus.OK
+            status_message = "synchronized"
+        return _diagnostic_status(
+            name="policy_bridge/synchronization",
+            level=level,
+            message=status_message,
+            values={
+                "synchronized_snapshot_available": _bool_text(
+                    health.synchronized_snapshot_available
+                ),
+                "snapshot_sequence_id": str(health.snapshot_sequence_id),
+                "snapshot_age_ms": _optional_float_text(health.snapshot_age_ms),
+                "last_sync_skew_ms": _optional_float_text(health.last_sync_skew_ms),
+                "sync_slop_ms": _float_text(health.sync_slop_ms),
+                "sync_queue_size": str(health.sync_queue_size),
+                "synchronized_observation_timeout_ms": _float_text(
+                    health.synchronized_observation_timeout_ms
+                ),
+                "last_sync_error": health.last_sync_error,
+            },
+        )
+
 
 def _diagnostic_status(
     *,
@@ -1164,6 +1738,52 @@ def _validate_joint_names(value: object) -> tuple[str, ...]:
     if len(set(names)) != len(names):
         raise ValueError("joint_names must be unique")
     return names
+
+
+def _header_stamp_ns(stamp: object) -> int:
+    """Convert a ROS header stamp to nanoseconds without substituting a clock."""
+
+    sec = getattr(stamp, "sec", None)
+    nanosec = getattr(stamp, "nanosec", None)
+    if (
+        isinstance(sec, bool)
+        or not isinstance(sec, int)
+        or isinstance(nanosec, bool)
+        or not isinstance(nanosec, int)
+    ):
+        raise TypeError("header stamp sec/nanosec must be integers")
+    if sec < 0 or nanosec < 0 or nanosec >= 1_000_000_000:
+        raise ValueError("header stamp is outside the ROS time range")
+    return sec * 1_000_000_000 + nanosec
+
+
+def _safe_header_stamp_ns(stamp: object) -> int:
+    try:
+        return _header_stamp_ns(stamp)
+    except (TypeError, ValueError):
+        return 0
+
+
+def _sensor_data_qos(depth: int) -> QoSProfile:
+    """Return explicit bounded volatile best-effort sensor-data QoS."""
+
+    return QoSProfile(
+        history=HistoryPolicy.KEEP_LAST,
+        depth=depth,
+        reliability=ReliabilityPolicy.BEST_EFFORT,
+        durability=DurabilityPolicy.VOLATILE,
+    )
+
+
+def _max_image_pixels_parameter(value: object) -> int:
+    if isinstance(value, bool) or not isinstance(value, int):
+        raise TypeError("max_image_pixels must be an integer")
+    if value <= 0 or value > MAX_CONFIGURABLE_IMAGE_PIXELS:
+        raise ValueError(
+            "max_image_pixels must be greater than zero and at most "
+            f"{MAX_CONFIGURABLE_IMAGE_PIXELS}"
+        )
+    return value
 
 
 def _goal_id(goal_handle: ServerGoalHandle) -> bytes:

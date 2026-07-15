@@ -10,6 +10,7 @@ import numpy as np
 import rclpy
 from rclpy.executors import ExternalShutdownException
 from rclpy.node import Node
+from rclpy.qos import qos_profile_sensor_data
 from sensor_msgs.msg import JointState
 from std_msgs.msg import Float64MultiArray
 
@@ -62,7 +63,11 @@ class MockManipulator(Node):
         self._target_positions = self._current_positions.copy()
         self._state_lock = threading.Lock()
 
-        self._joint_state_publisher = self.create_publisher(JointState, "/joint_states", 10)
+        self._joint_state_publisher = self.create_publisher(
+            JointState,
+            "/joint_states",
+            qos_profile_sensor_data,
+        )
         self._command_subscription = self.create_subscription(
             Float64MultiArray,
             "/joint_command",

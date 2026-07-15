@@ -2,14 +2,15 @@
 <?xml-model href="http://download.ros.org/schema/package_format3.xsd" schematypens="http://www.w3.org/2001/XMLSchema"?>
 <package format="3">
   <name>policy_bridge</name>
-  <version>0.2.0</version>
-  <description>ROS 2 policy runtime with deterministic fault handling and hold-position.</description>
+  <version>0.3.0</version>
+  <description>ROS 2 policy runtime with synchronized RGB and joint observations.</description>
 
   <maintainer email="maintainers@example.com">PolicyBridge-ROS2 contributors</maintainer>
   <license>Apache-2.0</license>
 
   <depend>action_msgs</depend>
   <depend>diagnostic_msgs</depend>
+  <depend>message_filters</depend>
   <depend>policy_bridge_interfaces</depend>
   <depend>rclpy</depend>
   <depend>sensor_msgs</depend>

@@ -264,6 +264,14 @@ class RuntimeStateMachine:
             now = self._now()
             return max(0.0, self._goal_deadline - now)
 
+    def goal_elapsed_seconds(self, episode_id: str) -> float | None:
+        """Return monotonic elapsed time for the current live episode."""
+
+        with self._lock:
+            if not self._owns_live_goal(episode_id) or self._goal_started_at is None:
+                return None
+            return max(0.0, self._now() - self._goal_started_at)
+
     def goal_timed_out(self, episode_id: str) -> bool:
         """Return whether an enabled deadline has elapsed for the live goal."""
 

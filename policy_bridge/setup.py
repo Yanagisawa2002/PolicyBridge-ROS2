@@ -9,7 +9,7 @@ package_name = "policy_bridge"
 
 setup(
     name=package_name,
-    version="0.2.0",
+    version="0.3.0",
     packages=find_packages(exclude=("test",)),
     data_files=[
         (
@@ -24,13 +24,14 @@ setup(
     zip_safe=True,
     maintainer="PolicyBridge-ROS2 contributors",
     maintainer_email="maintainers@example.com",
-    description="ROS 2 policy runtime with deterministic fault handling and hold-position.",
+    description="ROS 2 policy runtime with synchronized RGB and joint observations.",
     license="Apache-2.0",
     tests_require=["pytest"],
     entry_points={
         "console_scripts": [
             "demo_client = policy_bridge.demo_client:main",
             "mock_manipulator = policy_bridge.mock_manipulator:main",
+            "mock_rgb_camera = policy_bridge.mock_rgb_camera:main",
             "policy_server = policy_bridge.policy_server:main",
         ],
     },

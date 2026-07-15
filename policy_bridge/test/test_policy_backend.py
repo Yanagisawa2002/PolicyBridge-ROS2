@@ -1,4 +1,4 @@
-"""Unit tests for the explicit M1 policy backend factory and test doubles."""
+"""Unit tests for the explicit policy backend factory and test doubles."""
 
 from __future__ import annotations
 
@@ -6,6 +6,7 @@ from typing import Final
 
 import numpy as np
 import pytest
+from policy_bridge.observation import ObservationSnapshot
 from policy_bridge.policy_backend import (
     DelayedPolicy,
     InvalidActionPolicy,
@@ -14,13 +15,36 @@ from policy_bridge.policy_backend import (
     RaisingPolicy,
     create_policy_backend,
 )
-from policy_bridge.scripted_policy import SUPPORTED_INSTRUCTION, ScriptedPolicy
+from policy_bridge.scripted_policy import (
+    SUPPORTED_INSTRUCTION,
+    MultimodalScriptedPolicy,
+    ScriptedPolicy,
+)
 
 from policy_bridge import policy_backend as policy_backend_module
 
+JOINT_NAMES = tuple(f"joint_{index}" for index in range(1, 7))
+
+
+def _observation(*, with_rgb: bool = False) -> ObservationSnapshot:
+    """Build one valid backend request without ROS message objects."""
+
+    rgb = np.arange(24, dtype=np.uint8).reshape(2, 4, 3) if with_rgb else None
+    return ObservationSnapshot(
+        sequence_id=1,
+        joint_positions=np.zeros(6, dtype=np.float64),
+        joint_names=JOINT_NAMES,
+        rgb=rgb,
+        joint_stamp_ns=1_000_000_000,
+        image_stamp_ns=1_000_000_000 if with_rgb else None,
+        received_monotonic_ns=5_000_000_000,
+        synchronization_skew_ms=0.0 if with_rgb else None,
+        image_frame_id="camera_rgb_optical_frame" if with_rgb else None,
+    )
+
 
 class RecordingPolicy:
-    """Minimal legacy-style backend without a diagnostic name."""
+    """Minimal snapshot backend without a diagnostic name."""
 
     target: Final[tuple[float, ...]] = (0.0, 1.0, 2.0, 3.0, 4.0, 5.0)
 
@@ -33,10 +57,14 @@ class RecordingPolicy:
 
         self.reset_count += 1
 
-    def predict(self, joint_positions: JointVector, instruction: str) -> JointVector:
+    def predict(
+        self,
+        observation: ObservationSnapshot,
+        instruction: str,
+    ) -> JointVector:
         """Record calls and return one valid deterministic target."""
 
-        del joint_positions, instruction
+        del observation, instruction
         self.predict_count += 1
         return np.asarray(self.target, dtype=np.float64)
 
@@ -49,7 +77,7 @@ def test_factory_defaults_to_existing_scripted_policy() -> None:
     assert isinstance(backend, ScriptedPolicy)
     assert backend.backend_name == "scripted"  # type: ignore[attr-defined]
     np.testing.assert_array_equal(
-        backend.predict(np.ones(6, dtype=np.float64), SUPPORTED_INSTRUCTION),
+        backend.predict(_observation(), SUPPORTED_INSTRUCTION),
         np.zeros(6, dtype=np.float64),
     )
 
@@ -58,6 +86,11 @@ def test_factory_defaults_to_existing_scripted_policy() -> None:
     ("selector", "expected_type", "backend_name"),
     [
         ("scripted", ScriptedPolicy, "scripted"),
+        (
+            "multimodal_scripted",
+            MultimodalScriptedPolicy,
+            "multimodal_scripted",
+        ),
         ("delayed", DelayedPolicy, "delayed"),
         ("invalid_wrong_shape", InvalidActionPolicy, "invalid_wrong_shape"),
         ("invalid_nan", InvalidActionPolicy, "invalid_nan"),
@@ -90,7 +123,7 @@ def test_delayed_policy_delays_only_first_call_after_each_reset(
     delegate = RecordingPolicy()
     backend = DelayedPolicy(0.25, first_call_only=True, delegate=delegate)
     monkeypatch.setattr(policy_backend_module.time, "sleep", sleep_calls.append)
-    observation = np.zeros(6, dtype=np.float64)
+    observation = _observation()
 
     first = backend.predict(observation, SUPPORTED_INSTRUCTION)
     second = backend.predict(observation, SUPPORTED_INSTRUCTION)
@@ -114,7 +147,7 @@ def test_delayed_policy_can_delay_every_call(monkeypatch: pytest.MonkeyPatch) ->
     sleep_calls: list[float] = []
     backend = DelayedPolicy(0.5, first_call_only=False, delegate=RecordingPolicy())
     monkeypatch.setattr(policy_backend_module.time, "sleep", sleep_calls.append)
-    observation = np.zeros(6, dtype=np.float64)
+    observation = _observation()
 
     backend.predict(observation, SUPPORTED_INSTRUCTION)
     backend.predict(observation, SUPPORTED_INSTRUCTION)
@@ -137,7 +170,7 @@ def test_invalid_action_policy_produces_selected_fault(
     """Each invalid-action mode is stable and distinguishable."""
 
     backend = InvalidActionPolicy(mode)  # type: ignore[arg-type]
-    action = backend.predict(np.zeros(6, dtype=np.float64), SUPPORTED_INSTRUCTION)
+    action = backend.predict(_observation(), SUPPORTED_INSTRUCTION)
 
     assert backend.backend_name == expected_name
     assert action.dtype == np.float64
@@ -158,7 +191,7 @@ def test_invalid_action_policy_resets_and_validates_through_delegate() -> None:
     backend = InvalidActionPolicy("nan", delegate=delegate)
 
     backend.reset()
-    backend.predict(np.zeros(6, dtype=np.float64), "any instruction")
+    backend.predict(_observation(), "any instruction")
 
     assert delegate.reset_count == 1
     assert delegate.predict_count == 1
@@ -171,7 +204,7 @@ def test_raising_policy_uses_stable_non_instruction_exception() -> None:
     backend.reset()
 
     with pytest.raises(PolicyBackendTestError, match="^intentional test failure$"):
-        backend.predict(np.zeros(6, dtype=np.float64), SUPPORTED_INSTRUCTION)
+        backend.predict(_observation(), SUPPORTED_INSTRUCTION)
 
 
 def test_factory_forwards_delayed_backend_configuration(
@@ -187,8 +220,8 @@ def test_factory_forwards_delayed_backend_configuration(
     )
     monkeypatch.setattr(policy_backend_module.time, "sleep", sleep_calls.append)
 
-    backend.predict(np.zeros(6, dtype=np.float64), SUPPORTED_INSTRUCTION)
-    backend.predict(np.zeros(6, dtype=np.float64), SUPPORTED_INSTRUCTION)
+    backend.predict(_observation(), SUPPORTED_INSTRUCTION)
+    backend.predict(_observation(), SUPPORTED_INSTRUCTION)
 
     assert sleep_calls == [0.75, 0.75]
 

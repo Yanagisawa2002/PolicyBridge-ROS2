@@ -328,6 +328,23 @@ class TestPolicyServerM1(unittest.TestCase):
                 "inference_timeout_ms",
                 "last_policy_error",
             },
+            "policy_bridge/image": {
+                "image_required",
+                "image_received",
+                "image_valid",
+                "image_age_ms",
+                "image_timeout_ms",
+                "last_image_error",
+            },
+            "policy_bridge/synchronization": {
+                "synchronized_snapshot_available",
+                "snapshot_sequence_id",
+                "snapshot_age_ms",
+                "last_sync_skew_ms",
+                "sync_slop_ms",
+                "sync_queue_size",
+                "last_sync_error",
+            },
         }
         self._spin_until(
             lambda: all(self._matching_statuses(endpoint, name) for name in required),
@@ -335,8 +352,12 @@ class TestPolicyServerM1(unittest.TestCase):
             f"{endpoint.spec.key} did not publish all diagnostic statuses",
         )
         for name, keys in required.items():
-            present = set(self._values(self._matching_statuses(endpoint, name)[-1]))
+            latest = self._matching_statuses(endpoint, name)[-1]
+            present = set(self._values(latest))
             self.assertTrue(keys <= present, f"{name} missing keys {sorted(keys - present)}")
+            if name in ("policy_bridge/image", "policy_bridge/synchronization"):
+                self.assertEqual(latest.level, DiagnosticStatus.OK)
+                self.assertEqual(latest.message, "disabled")
 
     def _assert_fault_diagnostic(self, endpoint: _Endpoint, reason: str) -> None:
         def matching_fault_seen() -> bool:

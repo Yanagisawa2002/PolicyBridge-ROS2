@@ -15,11 +15,14 @@ from typing import Final, Literal, Protocol
 import numpy as np
 import numpy.typing as npt
 
+from .observation import ObservationSnapshot
+
 JointVector = npt.NDArray[np.float64]
 InvalidActionMode = Literal["wrong_shape", "nan", "inf"]
 
 _BACKEND_NAMES: Final[tuple[str, ...]] = (
     "scripted",
+    "multimodal_scripted",
     "delayed",
     "invalid_wrong_shape",
     "invalid_nan",
@@ -31,9 +34,9 @@ _BACKEND_NAMES: Final[tuple[str, ...]] = (
 class PolicyBackend(Protocol):
     """Structural interface implemented by policy inference backends.
 
-    A backend receives the latest six-joint observation and produces an
-    absolute six-joint position target.  The protocol deliberately contains
-    no ROS types so that policy implementations remain easy to unit test.
+    A backend receives one validated observation snapshot and produces an
+    absolute six-joint position target.  The protocol deliberately contains no
+    ROS types so that policy implementations remain easy to unit test.
     """
 
     def reset(self) -> None:
@@ -43,13 +46,13 @@ class PolicyBackend(Protocol):
 
     def predict(
         self,
-        joint_positions: JointVector,
+        observation: ObservationSnapshot,
         instruction: str,
     ) -> JointVector:
         """Return an absolute joint-position target for the observation.
 
         Args:
-            joint_positions: Current robot joint positions with shape ``(6,)``.
+            observation: Immutable, ROS-independent observation snapshot.
             instruction: Task instruction understood by the backend.
 
         Returns:
@@ -67,14 +70,19 @@ class PolicyBackendTestError(RuntimeError):
 def _new_scripted_policy() -> PolicyBackend:
     """Construct the production default without introducing an import cycle."""
 
-    # ScriptedPolicy imports JointVector from this module, so the import must
-    # remain local.  Adding the diagnostic name to the instance preserves the
-    # existing ScriptedPolicy class and its public imports unchanged.
+    # ScriptedPolicy imports the action alias from this module, so the import
+    # remains local to avoid an import cycle.
     from .scripted_policy import ScriptedPolicy
 
-    policy = ScriptedPolicy()
-    policy.backend_name = "scripted"
-    return policy
+    return ScriptedPolicy()
+
+
+def _new_multimodal_scripted_policy() -> PolicyBackend:
+    """Construct the finite RGB-aware built-in backend."""
+
+    from .scripted_policy import MultimodalScriptedPolicy
+
+    return MultimodalScriptedPolicy()
 
 
 class DelayedPolicy:
@@ -141,7 +149,7 @@ class DelayedPolicy:
 
     def predict(
         self,
-        joint_positions: JointVector,
+        observation: ObservationSnapshot,
         instruction: str,
     ) -> JointVector:
         """Delay when configured, then return the delegated prediction."""
@@ -153,7 +161,7 @@ class DelayedPolicy:
         should_delay = not self._first_call_only or call_index == 0
         if should_delay and self._delay_seconds > 0.0:
             time.sleep(self._delay_seconds)
-        return self._delegate.predict(joint_positions, instruction)
+        return self._delegate.predict(observation, instruction)
 
 
 class InvalidActionPolicy:
@@ -186,13 +194,13 @@ class InvalidActionPolicy:
 
     def predict(
         self,
-        joint_positions: JointVector,
+        observation: ObservationSnapshot,
         instruction: str,
     ) -> JointVector:
         """Validate through the delegate, then corrupt its valid action."""
 
         action = np.asarray(
-            self._delegate.predict(joint_positions, instruction),
+            self._delegate.predict(observation, instruction),
             dtype=np.float64,
         ).copy()
         if self._mode == "wrong_shape":
@@ -221,12 +229,12 @@ class RaisingPolicy:
 
     def predict(
         self,
-        joint_positions: JointVector,
+        observation: ObservationSnapshot,
         instruction: str,
     ) -> JointVector:
         """Raise :class:`PolicyBackendTestError` deterministically."""
 
-        del joint_positions, instruction
+        del observation, instruction
         raise PolicyBackendTestError(self._message)
 
 
@@ -239,12 +247,14 @@ def create_policy_backend(
     """Create one of the built-in backends through an explicit allow-list.
 
     No entry-point discovery, dynamic imports, downloads, or model registry are
-    involved.  ``scripted`` remains the production default; the remaining
-    selectors are deterministic fault-injection backends for runtime tests.
+    involved.  ``scripted`` remains the production default;
+    ``multimodal_scripted`` is a finite RGB-aware test backend, and the
+    remaining selectors are deterministic fault-injection backends.
 
     Args:
-        name: One of ``scripted``, ``delayed``, ``invalid_wrong_shape``,
-            ``invalid_nan``, ``invalid_inf``, or ``raising``.
+        name: One of ``scripted``, ``multimodal_scripted``, ``delayed``,
+            ``invalid_wrong_shape``, ``invalid_nan``, ``invalid_inf``, or
+            ``raising``.
         delayed_policy_delay_seconds: Delay used by the ``delayed`` backend.
         delayed_policy_first_call_only: Delay only the first call after reset.
 
@@ -257,6 +267,8 @@ def create_policy_backend(
         raise TypeError("policy backend name must be a string")
     if name == "scripted":
         return _new_scripted_policy()
+    if name == "multimodal_scripted":
+        return _new_multimodal_scripted_policy()
     if name == "delayed":
         return DelayedPolicy(
             delayed_policy_delay_seconds,
