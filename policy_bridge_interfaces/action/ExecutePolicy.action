@@ -1,0 +1,11 @@
+string instruction
+int32 max_steps
+float32 timeout_seconds
+---
+bool success
+string termination_reason
+string episode_id
+---
+int32 current_step
+float32 progress
+float32 inference_latency_ms
