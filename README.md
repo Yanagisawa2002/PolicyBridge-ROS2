@@ -42,7 +42,7 @@ The supported target environment is:
 
 - Ubuntu 22.04
 - ROS 2 Humble
-- Python 3.10 or newer
+- the system Python 3.10 interpreter supplied with Ubuntu 22.04 / ROS 2 Humble
 - `colcon` with the ROS 2 `ament_cmake` and `ament_python` build types
 - NumPy and pytest (normally resolved through `rosdep` / Ubuntu packages)
 
@@ -110,24 +110,23 @@ colcon test --packages-select policy_bridge policy_bridge_interfaces
 colcon test-result --verbose
 ```
 
-These commands are instructions, not claims that ROS-dependent tests were executed on the machine viewing this README. If ROS 2 is unavailable, the pure Python tests remain the relevant local validation; launch and action integration must be verified later in a ROS 2 Humble environment.
-
 The repository's current, environment-specific results are recorded in [docs/validation.md](docs/validation.md).
 
-Initial M0 validation on 2026-07-15 ran `python -m pytest -q` in the available Windows development environment: **36 tests passed in 0.16 seconds**. ROS 2 Humble was not available there, so `colcon build`, ROS-dependent package tests, launch, topic, action-discovery, cancellation-integration, and end-to-end goal execution were **not executed**. The sample above must not be read as evidence of a successful ROS run.
+M0.1 runtime validation on 2026-07-15 used an Ubuntu 22.04 container with ROS 2 Humble and its system Python 3.10. It included a clean `rosdep` resolution and two-package `colcon` build, package/interface/executable discovery, 38 passing ROS-workspace tests, normal end-to-end goals, an unsupported instruction, cancellation followed by a fresh goal on the same server, the exact final-step boundary, and repeated clean launches with unique episode IDs. The exact commands and recorded evidence are in the validation record; claims there are limited to checks that actually ran.
 
 ## Current limitations
 
 - Only one scripted instruction and one six-joint absolute-position action mode are supported.
 - `timeout_seconds` is present in the action contract for compatibility with later milestones, but M0 does not enforce a wall-clock deadline.
-- Cancellation stops new command publication only; it is not a deterministic safe stop.
+- Cancellation stops new command publication only. It does not retract the last command, command a hold position, or guarantee that a robot or the mock manipulator has physically stopped.
+- There is no timeout, hold-position, emergency-stop, or deterministic safe-stop implementation in M0.
 - There is no fault injection, automatic recovery, lifecycle-node management, or formal real-time guarantee.
 - There are no camera, RGB-D, TF, point-cloud, motion-planning, simulator, hardware, model-download, remote-inference, dashboard, database, rosbag, or deployment-platform integrations.
 - The mock manipulator is a deterministic software test double, not a physics model.
 
 ## Possible M1 work (not implemented)
 
-An M1 milestone could enforce `timeout_seconds` with a monotonic deadline, define a deterministic hold-position command for cancellation and failures, add structured diagnostics, and add ROS launch tests for timeout/cancellation/safe-stop paths. Those capabilities remain proposals; no M1 adapter, safety controller, or integration is included in M0.
+An M1 milestone could enforce `timeout_seconds` with a monotonic deadline, define a deterministic hold-position command for cancellation and failures, and add structured diagnostics and safe-stop integration tests. Those capabilities remain proposals; no M1 adapter, safety controller, or integration is included in M0.
 
 ## License
 

@@ -12,7 +12,7 @@ import rclpy
 from rclpy.action import ActionServer, CancelResponse, GoalResponse
 from rclpy.action.server import ServerGoalHandle
 from rclpy.callback_groups import ReentrantCallbackGroup
-from rclpy.executors import MultiThreadedExecutor
+from rclpy.executors import ExternalShutdownException, MultiThreadedExecutor
 from rclpy.node import Node
 from sensor_msgs.msg import JointState
 from std_msgs.msg import Float64MultiArray
@@ -61,8 +61,6 @@ class PolicyActionServer(Node):
         self._policy = ScriptedPolicy()
         self._latest_joint_positions: np.ndarray | None = None
         self._joint_state_lock = threading.Lock()
-        self._episode_lock = threading.Lock()
-        self._episode_counter = 0
         self._active_goal_lock = threading.Lock()
         self._goal_is_active = False
         self._command_gate_lock = threading.Lock()
@@ -172,10 +170,8 @@ class PolicyActionServer(Node):
         self._execution_wake_event.wait(control_period)
         self._execution_wake_event.clear()
 
-    def _next_episode_id(self) -> str:
-        with self._episode_lock:
-            self._episode_counter += 1
-            return f"episode-{self._episode_counter:06d}"
+    def _episode_id(self, goal_handle: ServerGoalHandle) -> str:
+        return f"episode-{_goal_id(goal_handle).hex()}"
 
     def _release_active_goal(self) -> None:
         with self._active_goal_lock:
@@ -291,7 +287,7 @@ class PolicyActionServer(Node):
             time.sleep(0.001)
 
     async def _execute_callback(self, goal_handle: ServerGoalHandle) -> ExecutePolicy.Result:
-        episode_id = self._next_episode_id()
+        episode_id = self._episode_id(goal_handle)
         request = goal_handle.request
         control_period = 1.0 / self._control_rate_hz
 
@@ -444,7 +440,7 @@ def main(args: list[str] | None = None) -> None:
     executor.add_node(node)
     try:
         executor.spin()
-    except KeyboardInterrupt:
+    except (KeyboardInterrupt, ExternalShutdownException):
         pass
     finally:
         node.request_stop()

@@ -4,7 +4,6 @@ build-backend = "setuptools.build_meta"
 
 [tool.pytest.ini_options]
 testpaths = ["policy_bridge/test"]
-pythonpath = ["policy_bridge"]
 addopts = "-ra"
 
 [tool.ruff]

@@ -7,6 +7,7 @@ from typing import Any
 import rclpy
 from action_msgs.msg import GoalStatus
 from rclpy.action import ActionClient
+from rclpy.executors import ExternalShutdownException
 from rclpy.node import Node
 from rclpy.task import Future
 
@@ -98,7 +99,7 @@ def main(args: list[str] | None = None) -> None:
     node.send_goal()
     try:
         rclpy.spin(node)
-    except KeyboardInterrupt:
+    except (KeyboardInterrupt, ExternalShutdownException):
         pass
     finally:
         node.destroy_node()
