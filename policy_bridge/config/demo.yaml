@@ -13,6 +13,12 @@ policy_server:
     action_name: execute_policy
     joint_state_topic: /joint_states
     joint_command_topic: /joint_command
+    policy_backend: scripted
+    inference_timeout_seconds: 1.0
+    joint_state_timeout_seconds: 1.0
+    diagnostics_rate_hz: 1.0
+    delayed_policy_delay_seconds: 2.0
+    delayed_policy_first_call_only: true
     control_rate_hz: 10.0
     goal_tolerance: 0.005
     joint_names:

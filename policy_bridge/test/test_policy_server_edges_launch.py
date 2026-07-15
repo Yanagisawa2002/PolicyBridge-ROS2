@@ -239,7 +239,7 @@ class TestPolicyServerEdges(unittest.TestCase):
         self.assertFalse(one_step_wrapped.result.success)
         self.assertEqual(one_step_wrapped.result.termination_reason, "max_steps_exceeded")
         self.assertEqual(one_step_feedback, [1])
-        self._assert_home_commands(expected_count=1)
+        self.assertEqual(self.commands, [_HOME, _PARTIAL])
         self.assertEqual(self.state_updates_after_commands, 1)
         self.assertFalse(self.state_responses)
 
@@ -269,10 +269,16 @@ class TestPolicyServerEdges(unittest.TestCase):
         canceled_episode_id = canceled_wrapped.result.episode_id
         self.assertTrue(canceled_episode_id)
 
+        self._spin_until(
+            lambda: len(self.commands) >= 2,
+            _FUTURE_TIMEOUT,
+            "the cancel scenario did not publish its hold-position command",
+        )
+        self.assertEqual(self.commands, [_HOME, _START])
         command_count_after_cancel = len(self.commands)
         self._spin_for(2.5 * _CONTROL_PERIOD)
         self.assertEqual(len(self.commands), command_count_after_cancel)
-        self.assertEqual(command_count_after_cancel, 1)
+        self.assertEqual(command_count_after_cancel, 2)
 
         # A new goal must not inherit the prior goal UUID's cancellation state.
         self._start_scenario([_HOME])
