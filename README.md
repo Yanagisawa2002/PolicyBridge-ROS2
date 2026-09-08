@@ -18,6 +18,12 @@ these events through synchronized observations and a single command/termination 
 Recorded on Ubuntu 22.04.5 / ROS 2 Humble / Python 3.10.12 with scripted policies
 and a mock manipulator. [Watch the 75-second demonstration](docs/assets/policybridge-ros2-demo.mp4).
 
+## Visual walkthrough
+
+[![Engineering overview and evidence](docs/portfolio/overview.svg)](docs/portfolio/overview.png)
+
+This sequence illustrates the implemented cancellation/late-result boundary. It is an explanatory diagram, not a measured timing trace. [Sources and reproduction](docs/portfolio/README.md).
+
 ## Engineering challenges
 
 1. **Resolve concurrent terminal events exactly once.** Cancellation, deadlines

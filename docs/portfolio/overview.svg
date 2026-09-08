@@ -1,0 +1,196 @@
+<?xml version="1.0" encoding="utf-8" standalone="no"?>
+<!DOCTYPE svg PUBLIC "-//W3C//DTD SVG 1.1//EN"
+  "http://www.w3.org/Graphics/SVG/1.1/DTD/svg11.dtd">
+<svg xmlns:xlink="http://www.w3.org/1999/xlink" width="864pt" height="619.2pt" viewBox="0 0 864 619.2" xmlns="http://www.w3.org/2000/svg" version="1.1">
+ <metadata>
+  <rdf:RDF xmlns:dc="http://purl.org/dc/elements/1.1/" xmlns:cc="http://creativecommons.org/ns#" xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#">
+   <cc:Work>
+    <dc:type rdf:resource="http://purl.org/dc/dcmitype/StillImage"/>
+    <dc:format>image/svg+xml</dc:format>
+    <dc:creator>
+     <cc:Agent>
+      <dc:title>Matplotlib / source-locked portfolio renderer</dc:title>
+     </cc:Agent>
+    </dc:creator>
+   </cc:Work>
+  </rdf:RDF>
+ </metadata>
+ <defs>
+  <style type="text/css">*{stroke-linejoin: round; stroke-linecap: butt}</style>
+ </defs>
+ <g id="figure_1">
+  <g id="patch_1">
+   <path d="M 0 619.2
+L 864 619.2
+L 864 0
+L 0 0
+z
+" style="fill: #ffffff"/>
+  </g>
+  <g id="axes_1">
+   <g id="patch_2">
+    <path d="M 70.5888 216.34848
+L 278.208 216.34848
+L 278.208 159.38208
+L 70.5888 159.38208
+z
+" clip-path="url(#p749ee252e7)" style="fill: #e7eff8; stroke: #3572b0; stroke-width: 1.2; stroke-linejoin: miter"/>
+   </g>
+   <g id="patch_3">
+    <path d="M 287.899787 187.86528
+Q 297.434024 187.86528 305.850227 187.86528
+" clip-path="url(#p749ee252e7)" style="fill: none; stroke: #172b4d; stroke-linecap: round"/>
+    <path d="M 300.650227 185.26528
+L 305.850227 187.86528
+L 300.650227 190.46528
+" clip-path="url(#p749ee252e7)" style="fill: none; stroke: #172b4d; stroke-linecap: round"/>
+   </g>
+   <g id="patch_4">
+    <path d="M 316.656 216.34848
+L 524.2752 216.34848
+L 524.2752 159.38208
+L 316.656 159.38208
+z
+" clip-path="url(#p749ee252e7)" style="fill: #e7eff8; stroke: #3572b0; stroke-width: 1.2; stroke-linejoin: miter"/>
+   </g>
+   <g id="patch_5">
+    <path d="M 533.966987 187.86528
+Q 543.501224 187.86528 551.917427 187.86528
+" clip-path="url(#p749ee252e7)" style="fill: none; stroke: #172b4d; stroke-linecap: round"/>
+    <path d="M 546.717427 185.26528
+L 551.917427 187.86528
+L 546.717427 190.46528
+" clip-path="url(#p749ee252e7)" style="fill: none; stroke: #172b4d; stroke-linecap: round"/>
+   </g>
+   <g id="patch_6">
+    <path d="M 562.7232 216.34848
+L 770.3424 216.34848
+L 770.3424 159.38208
+L 562.7232 159.38208
+z
+" clip-path="url(#p749ee252e7)" style="fill: #e7eff8; stroke: #3572b0; stroke-width: 1.2; stroke-linejoin: miter"/>
+   </g>
+   <g id="text_1">
+    <text style="font-weight: 700; font-size: 10px; font-family: 'DejaVu Sans'; text-anchor: start; fill: #68778d" x="47.52" y="108.11232" transform="rotate(-0 47.52 108.11232)">HOW IT WORKS · schematic</text>
+   </g>
+   <g id="text_2">
+    <text style="font-size: 11px; font-family: 'DejaVu Sans'; fill: #172b4d" transform="translate(132.2409 184.741796)">Fresh RGB/joint</text>
+    <text style="font-size: 11px; font-family: 'DejaVu Sans'; fill: #172b4d" transform="translate(149.313244 197.059389)">snapshot</text>
+   </g>
+   <g id="text_3">
+    <text style="font-size: 11px; font-family: 'DejaVu Sans'; fill: #172b4d" transform="translate(378.047709 184.741796)">Bounded policy</text>
+    <text style="font-size: 11px; font-family: 'DejaVu Sans'; fill: #172b4d" transform="translate(401.7106 197.059389)">worker</text>
+   </g>
+   <g id="text_4">
+    <text style="font-size: 11px; font-family: 'DejaVu Sans'; fill: #172b4d" transform="translate(640.876159 184.741796)">Validated</text>
+    <text style="font-size: 11px; font-family: 'DejaVu Sans'; fill: #172b4d" transform="translate(611.126316 197.059389)">command boundary</text>
+   </g>
+  </g>
+  <g id="axes_2">
+   <g id="line2d_1">
+    <path d="M 119.9232 496.5984
+L 119.9232 298.20672
+" clip-path="url(#p25599bba16)" style="fill: none; stroke-dasharray: 3.7,1.6; stroke-dashoffset: 0; stroke: #bdc7d4"/>
+   </g>
+   <g id="line2d_2">
+    <path d="M 335.4048 496.5984
+L 335.4048 298.20672
+" clip-path="url(#p25599bba16)" style="fill: none; stroke-dasharray: 3.7,1.6; stroke-dashoffset: 0; stroke: #bdc7d4"/>
+   </g>
+   <g id="line2d_3">
+    <path d="M 550.8864 496.5984
+L 550.8864 298.20672
+" clip-path="url(#p25599bba16)" style="fill: none; stroke-dasharray: 3.7,1.6; stroke-dashoffset: 0; stroke: #bdc7d4"/>
+   </g>
+   <g id="line2d_4">
+    <path d="M 758.9376 496.5984
+L 758.9376 298.20672
+" clip-path="url(#p25599bba16)" style="fill: none; stroke-dasharray: 3.7,1.6; stroke-dashoffset: 0; stroke: #bdc7d4"/>
+   </g>
+   <g id="text_5">
+    <text style="font-weight: 700; font-size: 11px; font-family: 'DejaVu Sans'; text-anchor: middle; fill: #172b4d" x="119.9232" y="282.544344" transform="rotate(-0 119.9232 282.544344)">Client</text>
+   </g>
+   <g id="text_6">
+    <text style="font-weight: 700; font-size: 11px; font-family: 'DejaVu Sans'; text-anchor: middle; fill: #172b4d" x="335.4048" y="282.544344" transform="rotate(-0 335.4048 282.544344)">Runtime</text>
+   </g>
+   <g id="text_7">
+    <text style="font-weight: 700; font-size: 11px; font-family: 'DejaVu Sans'; text-anchor: middle; fill: #172b4d" x="550.8864" y="282.458406" transform="rotate(-0 550.8864 282.458406)">Policy worker</text>
+   </g>
+   <g id="text_8">
+    <text style="font-weight: 700; font-size: 11px; font-family: 'DejaVu Sans'; text-anchor: middle; fill: #172b4d" x="758.9376" y="282.544344" transform="rotate(-0 758.9376 282.544344)">Command output</text>
+   </g>
+   <g id="patch_7">
+    <path d="M 337.407185 318.2688
+Q 443.148389 318.2688 547.100738 318.2688
+" style="fill: none; stroke: #3572b0; stroke-width: 1.6; stroke-linecap: round"/>
+    <path d="M 542.300738 315.8688
+L 547.100738 318.2688
+L 542.300738 320.6688
+" style="fill: none; stroke: #3572b0; stroke-width: 1.6; stroke-linecap: round"/>
+   </g>
+   <g id="text_9">
+    <text style="font-size: 10.5px; font-family: 'DejaVu Sans'; text-anchor: middle; fill: #172b4d" x="443.1456" y="307.168648" transform="rotate(-0 443.1456 307.168648)">Start inference</text>
+   </g>
+   <g id="patch_8">
+    <path d="M 121.925585 365.08032
+Q 227.666789 365.08032 331.619138 365.08032
+" style="fill: none; stroke: #3572b0; stroke-width: 1.6; stroke-linecap: round"/>
+    <path d="M 326.819138 362.68032
+L 331.619138 365.08032
+L 326.819138 367.48032
+" style="fill: none; stroke: #3572b0; stroke-width: 1.6; stroke-linecap: round"/>
+   </g>
+   <g id="text_10">
+    <text style="font-size: 10.5px; font-family: 'DejaVu Sans'; text-anchor: middle; fill: #172b4d" x="227.664" y="353.980168" transform="rotate(-0 227.664 353.980168)">Cancel goal</text>
+   </g>
+   <g id="patch_9">
+    <path d="M 337.404974 411.89184
+Q 547.172707 411.89184 755.151586 411.89184
+" style="fill: none; stroke: #3572b0; stroke-width: 1.6; stroke-linecap: round"/>
+    <path d="M 750.351586 409.49184
+L 755.151586 411.89184
+L 750.351586 414.29184
+" style="fill: none; stroke: #3572b0; stroke-width: 1.6; stroke-linecap: round"/>
+   </g>
+   <g id="text_11">
+    <text style="font-size: 10.5px; font-family: 'DejaVu Sans'; text-anchor: middle; fill: #172b4d" x="547.1712" y="400.791688" transform="rotate(-0 547.1712 400.791688)">Send latest-state hold</text>
+   </g>
+   <g id="patch_10">
+    <path d="M 548.884015 458.70336
+Q 443.142811 458.70336 339.190462 458.70336
+" style="fill: none; stroke: #3572b0; stroke-width: 1.6; stroke-linecap: round"/>
+    <path d="M 343.990462 461.10336
+L 339.190462 458.70336
+L 343.990462 456.30336
+" style="fill: none; stroke: #3572b0; stroke-width: 1.6; stroke-linecap: round"/>
+   </g>
+   <g id="text_12">
+    <text style="font-size: 10.5px; font-family: 'DejaVu Sans'; text-anchor: middle; fill: #172b4d" x="443.1456" y="447.603208" transform="rotate(-0 443.1456 447.603208)">Late inference returns</text>
+   </g>
+   <g id="text_13">
+    <text style="font-weight: 700; font-size: 11px; font-family: 'DejaVu Sans'; text-anchor: start; fill: #172b4d" x="335.4048" y="496.5984" transform="rotate(-0 335.4048 496.5984)">Discard late result; no new command</text>
+   </g>
+  </g>
+  <g id="text_14">
+   <text style="font-weight: 700; font-size: 23px; font-family: 'DejaVu Sans'; text-anchor: start; fill: #172b4d" x="47.52" y="48.436406" transform="rotate(-0 47.52 48.436406)">Cancellation: one terminal decision, no late command</text>
+  </g>
+  <g id="text_15">
+   <text style="font-size: 11.5px; font-family: 'DejaVu Sans'; text-anchor: start; fill: #68778d" x="47.52" y="73.754203" transform="rotate(-0 47.52 73.754203)">Runtime behavior schematic · event order only; horizontal/vertical distance is not measured latency</text>
+  </g>
+  <g id="text_16">
+   <text style="font-size: 10.5px; font-family: 'DejaVu Sans'; fill: #68778d" transform="translate(47.52 555.970359)">The runtime can finish cancellation while inference is still running; late output is discarded.</text>
+   <text style="font-size: 10.5px; font-family: 'DejaVu Sans'; fill: #68778d" transform="translate(47.52 570.12157)">A latest-state hold is a software position command. Physical stopping depends on the controller.</text>
+  </g>
+  <g id="text_17">
+   <text style="font-size: 9px; font-family: 'DejaVu Sans'; text-anchor: start; fill: #68778d" x="47.52" y="597.528" transform="rotate(-0 47.52 597.528)">Source: policy_server.py, runtime_state.py and docs/validation.md</text>
+  </g>
+ </g>
+ <defs>
+  <clipPath id="p749ee252e7">
+   <rect x="47.52" y="105.264" width="768.96" height="142.416"/>
+  </clipPath>
+  <clipPath id="p25599bba16">
+   <rect x="60.48" y="284.832" width="743.04" height="222.912"/>
+  </clipPath>
+ </defs>
+</svg>

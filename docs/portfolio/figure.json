@@ -1,0 +1,36 @@
+{
+  "title": "Cancellation: one terminal decision, no late command",
+  "subtitle": "Runtime behavior schematic \u00b7 event order only; horizontal/vertical distance is not measured latency",
+  "flow": [
+    "Fresh RGB/joint\nsnapshot",
+    "Bounded policy\nworker",
+    "Validated\ncommand boundary"
+  ],
+  "kind": "sequence",
+  "note": "The runtime can finish cancellation while inference is still running; late output is discarded.\nA latest-state hold is a software position command. Physical stopping depends on the controller.",
+  "source_label": "policy_server.py, runtime_state.py and docs/validation.md",
+  "sources": [
+    {
+      "path": "policy_bridge/policy_bridge/policy_server.py",
+      "sha256": "09e492dd44496390e9568450d0cb72d3fc880dd4529d80b5c6a7c8866f135215",
+      "hash_normalization": "CRLF to LF"
+    },
+    {
+      "path": "policy_bridge/policy_bridge/runtime_state.py",
+      "sha256": "2e3c568b8e3448b087a3a5eab918c06a7d623a15e1bb3da46512c02abe744b7d",
+      "hash_normalization": "CRLF to LF"
+    },
+    {
+      "path": "docs/validation.md",
+      "sha256": "6fa4421d0119f7021e0ad55899121c61604441db69e45b8e57eb7e89b7574465",
+      "hash_normalization": "CRLF to LF"
+    }
+  ],
+  "chart_contract": {
+    "surface": "GitHub README; static SVG and PNG",
+    "palette": "single blue root plus neutrals; explicit labels and hatching",
+    "footprint": "1200 x 860 logical pixels",
+    "question": "Cancellation: one terminal decision, no late command",
+    "data_grain": "As labeled per panel; schematic flow has no timing or dimensional scale."
+  }
+}
