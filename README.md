@@ -1,13 +1,43 @@
 # PolicyBridge-ROS2
 
-A fault-aware ROS 2 runtime for learned robot policies.
+**Give robot-policy execution predictable behavior when inference or observations fail.**
 
-- ✅ Standard ROS 2 Action execution
-- ✅ Goal and inference timeouts
-- ✅ Cancellation and deterministic hold
-- ✅ Synchronized RGB + joint observations
-- ✅ Structured runtime diagnostics
-- ✅ **204 tests passed on ROS 2 Humble** ([recorded validation](docs/validation.md))
+Policy inference can finish late, camera data can go stale, and a client can
+cancel while a worker is still running. I built a ROS 2 runtime that coordinates
+these events through synchronized observations and a single command/termination boundary.
+
+## Results and demo
+
+[![Synchronized observations, execution and fault handling](docs/assets/policybridge-ros2-demo.gif)](docs/assets/policybridge-ros2-demo.mp4)
+
+- **204 tests passed in the recorded ROS 2 Humble validation**, including
+  synchronization, cancellation races, late-result isolation and recovery.
+- **4/4 repeated demo runs reached the goal**: two joint-only and two RGB/joint
+  runs, with distinct episode IDs and clean shutdown.
+
+Recorded on Ubuntu 22.04.5 / ROS 2 Humble / Python 3.10.12 with scripted policies
+and a mock manipulator. [Watch the 75-second demonstration](docs/assets/policybridge-ros2-demo.mp4).
+
+## Engineering challenges
+
+1. **Resolve concurrent terminal events exactly once.** Cancellation, deadlines
+   and inference completion can race; late output must not publish a command.
+2. **Keep observations fresh and coherent.** RGB and joint streams need bounded
+   queues, timestamp checks and immutable snapshots without reusing stale input.
+
+## My contribution
+
+I implemented the ROS 2 Action runtime, policy-worker isolation, first-wins state
+transitions, RGB/joint synchronization, action validation and structured diagnostics.
+I also built the mock devices, fault-injection backends and integration tests.
+
+## Evidence and reproduction
+
+[Humble validation](docs/validation.md) · [Runtime architecture](docs/architecture.md) ·
+[Quick start](#30-second-quick-start) · [Optional physics experiment](docs/PHYSICS_SIMULATION.md).
+The physics experiment and supported scope are detailed in the expandable section.
+
+## Runtime architecture
 
 ```mermaid
 flowchart LR
@@ -22,8 +52,6 @@ flowchart LR
     Runtime -->|"fault / cancel: latest-state hold"| Robot
     Runtime --> Diagnostics["Five-component diagnostics"]
 ```
-
-The closed loop is observation → policy inference → validated command → new observation. One snapshot can drive at most one inference. Cancellation, deadlines, joint/image freshness, and synchronization faults remain responsive while the runtime waits.
 
 ## 30-second quick start
 
@@ -49,25 +77,9 @@ Both demos submit `move to home` and normally finish with `success=true` and `te
 
 `demo.launch.py` starts the six-joint mock manipulator, policy server, and one-shot client in the default `joint_only` mode.
 
-[![PolicyBridge-ROS2 synchronized multimodal demo](docs/assets/policybridge-ros2-demo.gif)](docs/assets/policybridge-ros2-demo.mp4)
-
 The GIF shows the normal synchronized RGB + joint path. Select it to open the full 75-second demonstration, which also covers diagnostics, `stale_image`, cancellation, deterministic hold, validation, and the three versioned milestones.
 
 The multimodal launch additionally starts a deterministic 64×48 `rgb8` mock camera and selects `multimodal_scripted`. That backend verifies RGB reached `predict()` and returns the fixed home target; it is a transport demonstration, not a learned vision model.
-
-## Physics integration example
-
-An optional [headless PyBullet example](docs/PHYSICS_SIMULATION.md) connects the
-existing observation/policy/action boundary to a six-joint rigid-body chain.
-It requires neither ROS nor a graphical window and records reproducible trajectories.
-
-The retained eight starting configurations passed 8/8 home-convergence checks
-and 7/8 hold-transient checks. The overall physics gate is **not passed**: one
-hold transient exceeded 0.05 rad, even though its final position settled. This
-illustrates why a position hold is not an instantaneous physical stop.
-
-This is a scripted-policy physics example, not learned-policy deployment or a
-new ROS Action integration result. See the [complete results and reproduction commands](docs/PHYSICS_SIMULATION.md).
 
 ## Fault-aware behavior
 
@@ -241,6 +253,23 @@ python3 -m pytest -q
 
 See [docs/validation.md](docs/validation.md) for the exact commands, isolation note, failure-path evidence, diagnostics sample, and repeated-demo episode IDs. See [docs/architecture.md](docs/architecture.md) for synchronization, epoch, memory, and concurrency details.
 
+<details>
+<summary>Evaluation details, tradeoffs and supported scope</summary>
+
+## Physics integration example
+
+An optional [headless PyBullet example](docs/PHYSICS_SIMULATION.md) connects the
+existing observation/policy/action boundary to a six-joint rigid-body chain.
+It requires neither ROS nor a graphical window and records reproducible trajectories.
+
+The retained eight starting configurations passed 8/8 home-convergence checks
+and 7/8 hold-transient checks. The overall physics gate is **not passed**: one
+hold transient exceeded 0.05 rad, even though its final position settled. This
+illustrates why a position hold is not an instantaneous physical stop.
+
+This is a scripted-policy physics example, not learned-policy deployment or a
+new ROS Action integration result. See the [complete results and reproduction commands](docs/PHYSICS_SIMULATION.md).
+
 ## Limits and Future Integration
 
 - One active Goal, one six-joint absolute-position command mode, one raw RGB camera, and one synchronous Python worker are supported.
@@ -250,6 +279,8 @@ See [docs/validation.md](docs/validation.md) for the exact commands, isolation n
 - The included `scripted` and `multimodal_scripted` backends are deterministic demos, not neural networks or VLM/VLA models.
 
 The `PolicyBackend` boundary is the honest extension point for a learned policy. LangMani and LatentGuard are not currently integrated; future adapters can implement `predict(ObservationSnapshot, instruction)` without changing the ROS action or observation pipeline. The project does not currently claim model loading, dynamic plugin discovery, OpenAI/Hugging Face APIs, ONNX, TensorRT, CUDA, or remote inference.
+
+</details>
 
 ## License
 
