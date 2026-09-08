@@ -7,7 +7,7 @@ A fault-aware ROS 2 runtime for learned robot policies.
 - ✅ Cancellation and deterministic hold
 - ✅ Synchronized RGB + joint observations
 - ✅ Structured runtime diagnostics
-- ✅ **204 tests passed on ROS 2 Humble**
+- ✅ **204 tests passed on ROS 2 Humble** ([recorded validation](docs/validation.md))
 
 ```mermaid
 flowchart LR
@@ -54,6 +54,20 @@ Both demos submit `move to home` and normally finish with `success=true` and `te
 The GIF shows the normal synchronized RGB + joint path. Select it to open the full 75-second demonstration, which also covers diagnostics, `stale_image`, cancellation, deterministic hold, validation, and the three versioned milestones.
 
 The multimodal launch additionally starts a deterministic 64×48 `rgb8` mock camera and selects `multimodal_scripted`. That backend verifies RGB reached `predict()` and returns the fixed home target; it is a transport demonstration, not a learned vision model.
+
+## Physics integration example
+
+An optional [headless PyBullet example](docs/PHYSICS_SIMULATION.md) connects the
+existing observation/policy/action boundary to a six-joint rigid-body chain.
+It requires neither ROS nor a graphical window and records reproducible trajectories.
+
+The retained eight starting configurations passed 8/8 home-convergence checks
+and 7/8 hold-transient checks. The overall physics gate is **not passed**: one
+hold transient exceeded 0.05 rad, even though its final position settled. This
+illustrates why a position hold is not an instantaneous physical stop.
+
+This is a scripted-policy physics example, not learned-policy deployment or a
+new ROS Action integration result. See the [complete results and reproduction commands](docs/PHYSICS_SIMULATION.md).
 
 ## Fault-aware behavior
 

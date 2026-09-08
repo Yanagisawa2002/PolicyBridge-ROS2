@@ -1,0 +1,305 @@
+{
+  "scope": "ROS-independent scripted-policy boundary in headless rigid-body simulation",
+  "not_validated": [
+    "ROS transport/action runtime",
+    "learned policy",
+    "real hardware",
+    "collision avoidance",
+    "certified stop",
+    "real-time deadlines"
+  ],
+  "environment": {
+    "python": "3.12.10",
+    "platform": "Windows-11-10.0.26200-SP0",
+    "numpy": "2.2.6",
+    "pybullet": "3.2.7"
+  },
+  "source_base_commit": "e2ae23cf1959a3cffaaba06d921f3f3b5956d2d1",
+  "source_sha256": {
+    "examples/pybullet/run_evidence.py": "b438c654837bd26197dc68c4d90a4817e0c20e79adb7d5c3aa2a3ab663ffa5dd",
+    "policy_bridge/policy_bridge/__init__.py": "2f0a6d965b73b80a029324bb2ec6f1b06124305b048c4b7ce90572aae604194e",
+    "policy_bridge/policy_bridge/action_validation.py": "91a4402f445da55bd73c2cb8ac537227760757be09587c58cdc61e7481d85921",
+    "policy_bridge/policy_bridge/demo_client.py": "d716a4a635fb2325a913fc9e57726effa7a209aef648787f0e00419f647eab52",
+    "policy_bridge/policy_bridge/mock_dynamics.py": "8a4531ff55a5862cc7b10db2960abea421ca8a40b8169de96ba261385238313f",
+    "policy_bridge/policy_bridge/mock_manipulator.py": "ad865e48eacfed74d66b42b133d3450209997d7e0f566e9cbc35839e39a35b05",
+    "policy_bridge/policy_bridge/mock_rgb_camera.py": "1ddbe7810b78e2c19f0268ba014bcb4aeabdec2bd85e3589cfc5bc431365c45c",
+    "policy_bridge/policy_bridge/observation.py": "5b394b35a44a828694f451a240096f8deb35759d3b07a659554f6ba2b6735987",
+    "policy_bridge/policy_bridge/observation_runtime.py": "b4570c03f735025a6270f93d8ba001d6e811c1595cca424e7ff8d29173b6bb7c",
+    "policy_bridge/policy_bridge/policy_backend.py": "ac2a38e1272157e4ce6048b7eea688d096bd78fcbe6e2163d421f150cf15e343",
+    "policy_bridge/policy_bridge/policy_server.py": "7d50fc88139b95043c719a6007e4536525ec2cadbc456ecc6e3ad032209a5552",
+    "policy_bridge/policy_bridge/runtime_state.py": "4a75dc5886dc6e309b3487c5c050648edb2aa56f64a0cc3e69fb6e14a469d350",
+    "policy_bridge/policy_bridge/scripted_policy.py": "da9856e9031664b1e1a7680beca50189d816ccdeb073d061fc64722fe3f89e6e"
+  },
+  "protocol": {
+    "seed": 20260908,
+    "physics_hz": 240,
+    "control_hz": 20,
+    "duration_seconds": 5,
+    "gravity_m_s2": [
+      0,
+      0,
+      -9.81
+    ],
+    "final_error_limit_rad": 0.01,
+    "peak_hold_limit_rad": 0.05,
+    "model": "procedural six-link chain; no self-collision or contact task"
+  },
+  "episodes": [
+    {
+      "episode": "start-1-home",
+      "initial_rad": [
+        0.5997234107202352,
+        0.23751188775952636,
+        0.41786447845363006,
+        -0.15909489582706604,
+        -0.14511374599740523,
+        -0.45053447721972123
+      ],
+      "final_error_rad": 0.0014995522334651206,
+      "peak_hold_error_rad": null,
+      "commands": 100,
+      "passed": true
+    },
+    {
+      "episode": "start-1-hold",
+      "initial_rad": [
+        0.5997234107202352,
+        0.23751188775952636,
+        0.41786447845363006,
+        -0.15909489582706604,
+        -0.14511374599740523,
+        -0.45053447721972123
+      ],
+      "final_error_rad": 0.0014995167433432969,
+      "peak_hold_error_rad": 0.033236924419313,
+      "commands": 5,
+      "passed": true
+    },
+    {
+      "episode": "start-2-home",
+      "initial_rad": [
+        -0.6293662033347319,
+        0.08909619223808252,
+        0.22807590465427752,
+        0.02841362631801636,
+        -0.3461411493527713,
+        0.024938283662607974
+      ],
+      "final_error_rad": 0.0014995522334651124,
+      "peak_hold_error_rad": null,
+      "commands": 100,
+      "passed": true
+    },
+    {
+      "episode": "start-2-hold",
+      "initial_rad": [
+        -0.6293662033347319,
+        0.08909619223808252,
+        0.22807590465427752,
+        0.02841362631801636,
+        -0.3461411493527713,
+        0.024938283662607974
+      ],
+      "final_error_rad": 0.0014995371777215699,
+      "peak_hold_error_rad": 0.055593271652652265,
+      "commands": 5,
+      "passed": false
+    },
+    {
+      "episode": "start-3-home",
+      "initial_rad": [
+        0.25375377580818936,
+        -0.3458558691821102,
+        0.5510922539026193,
+        -0.19333223533547306,
+        -0.520106214826552,
+        -0.33131640434589293
+      ],
+      "final_error_rad": 0.0014995522334651057,
+      "peak_hold_error_rad": null,
+      "commands": 100,
+      "passed": true
+    },
+    {
+      "episode": "start-3-hold",
+      "initial_rad": [
+        0.25375377580818936,
+        -0.3458558691821102,
+        0.5510922539026193,
+        -0.19333223533547306,
+        -0.520106214826552,
+        -0.33131640434589293
+      ],
+      "final_error_rad": 0.0014995376790650355,
+      "peak_hold_error_rad": 0.0014995376790650555,
+      "commands": 5,
+      "passed": true
+    },
+    {
+      "episode": "start-4-home",
+      "initial_rad": [
+        0.07491602229808214,
+        0.46668154962596153,
+        -0.5421376249248692,
+        0.629545809276401,
+        0.005363885822926684,
+        -0.09953636014016498
+      ],
+      "final_error_rad": 0.0014995522334651141,
+      "peak_hold_error_rad": null,
+      "commands": 100,
+      "passed": true
+    },
+    {
+      "episode": "start-4-hold",
+      "initial_rad": [
+        0.07491602229808214,
+        0.46668154962596153,
+        -0.5421376249248692,
+        0.629545809276401,
+        0.005363885822926684,
+        -0.09953636014016498
+      ],
+      "final_error_rad": 0.001499528087237858,
+      "peak_hold_error_rad": 0.001499528087237867,
+      "commands": 5,
+      "passed": true
+    },
+    {
+      "episode": "start-5-home",
+      "initial_rad": [
+        -0.41963314989420764,
+        0.4081623115576274,
+        -0.7157090025739191,
+        0.7243294593928236,
+        -0.24357790142567382,
+        0.47180249381553363
+      ],
+      "final_error_rad": 0.0014995522334651193,
+      "peak_hold_error_rad": null,
+      "commands": 100,
+      "passed": true
+    },
+    {
+      "episode": "start-5-hold",
+      "initial_rad": [
+        -0.41963314989420764,
+        0.4081623115576274,
+        -0.7157090025739191,
+        0.7243294593928236,
+        -0.24357790142567382,
+        0.47180249381553363
+      ],
+      "final_error_rad": 0.0014995255418188361,
+      "peak_hold_error_rad": 0.0014995255418188509,
+      "commands": 5,
+      "passed": true
+    },
+    {
+      "episode": "start-6-home",
+      "initial_rad": [
+        0.0503498721442357,
+        -0.14275960096357332,
+        0.7089555742904377,
+        0.5941122991758732,
+        -0.1617296924931354,
+        -0.14147410726358856
+      ],
+      "final_error_rad": 0.0014995522334651137,
+      "peak_hold_error_rad": null,
+      "commands": 100,
+      "passed": true
+    },
+    {
+      "episode": "start-6-hold",
+      "initial_rad": [
+        0.0503498721442357,
+        -0.14275960096357332,
+        0.7089555742904377,
+        0.5941122991758732,
+        -0.1617296924931354,
+        -0.14147410726358856
+      ],
+      "final_error_rad": 0.0014995409736618974,
+      "peak_hold_error_rad": 0.0014995409736619112,
+      "commands": 5,
+      "passed": true
+    },
+    {
+      "episode": "start-7-home",
+      "initial_rad": [
+        0.5298106196533998,
+        0.011117418715121175,
+        0.6139852898049423,
+        0.525005408715677,
+        0.5296296045678905,
+        0.2645207514183632
+      ],
+      "final_error_rad": 0.0014995522334651135,
+      "peak_hold_error_rad": null,
+      "commands": 100,
+      "passed": true
+    },
+    {
+      "episode": "start-7-hold",
+      "initial_rad": [
+        0.5298106196533998,
+        0.011117418715121175,
+        0.6139852898049423,
+        0.525005408715677,
+        0.5296296045678905,
+        0.2645207514183632
+      ],
+      "final_error_rad": 0.001499471987966074,
+      "peak_hold_error_rad": 0.009440204545588082,
+      "commands": 5,
+      "passed": true
+    },
+    {
+      "episode": "start-8-home",
+      "initial_rad": [
+        0.04160062923918084,
+        -0.22172425201304835,
+        0.5692714002259309,
+        -0.08626301012112447,
+        -0.7449220715923759,
+        0.05445653887426061
+      ],
+      "final_error_rad": 0.0014995522334651163,
+      "peak_hold_error_rad": null,
+      "commands": 100,
+      "passed": true
+    },
+    {
+      "episode": "start-8-hold",
+      "initial_rad": [
+        0.04160062923918084,
+        -0.22172425201304835,
+        0.5692714002259309,
+        -0.08626301012112447,
+        -0.7449220715923759,
+        0.05445653887426061
+      ],
+      "final_error_rad": 0.0014995393456326994,
+      "peak_hold_error_rad": 0.0014995393456327072,
+      "commands": 5,
+      "passed": true
+    }
+  ],
+  "motors_disabled_control": {
+    "initial_rad": [
+      0.5997234107202352,
+      0.23751188775952636,
+      0.41786447845363006,
+      -0.15909489582706604,
+      -0.14511374599740523,
+      -0.45053447721972123
+    ],
+    "final_error_rad": 5.690338422742412,
+    "peak_hold_error_rad": null,
+    "commands": 0,
+    "passed": false
+  },
+  "trajectory_sha256": "dc88a913a59b8b38d19b4d17585b031c0f9a69909f8e20a43cec25591dcf1bbe",
+  "passed": false
+}
