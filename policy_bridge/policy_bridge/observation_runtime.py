@@ -198,7 +198,16 @@ class ObservationStore:
             snapshot = self._latest_snapshot
             if snapshot is None or snapshot.sequence_id <= after_sequence_id:
                 return None
+            if not self._snapshot_is_fresh_locked():
+                return None
             return snapshot
+
+    def _snapshot_is_fresh_locked(self) -> bool:
+        return (
+            self._last_snapshot_received_at is not None
+            and 0.0 <= self._now() - self._last_snapshot_received_at
+            < self._synchronized_observation_timeout_seconds
+        )
 
     def record_joint_stamp(self, stamp_ns: int) -> None:
         """Record a validated source header stamp for synchronization diagnostics."""
@@ -327,6 +336,7 @@ class ObservationStore:
             if (
                 self._latest_snapshot is not None
                 and self._latest_snapshot.sequence_id > required_sequence
+                and self._snapshot_is_fresh_locked()
             ):
                 return None
             if (

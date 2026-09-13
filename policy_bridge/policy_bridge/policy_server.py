@@ -285,7 +285,7 @@ class PolicyActionServer(Node):
             self._time_synchronizer.registerCallback(self._synchronized_observation_callback)
         self._diagnostics_timer = self.create_timer(
             1.0 / diagnostics_rate_hz,
-            self._publish_diagnostics,
+            self._try_publish_diagnostics,
             callback_group=self._callback_group,
         )
         self._action_server = ActionServer(
@@ -304,7 +304,7 @@ class PolicyActionServer(Node):
             f"joint topic='{self._joint_state_topic}'"
             + ("" if observation_mode == JOINT_ONLY else f", image topic='{self._image_topic}'")
         )
-        self._publish_diagnostics()
+        self._try_publish_diagnostics()
 
     def destroy_node(self) -> None:
         """Stop new worker submissions and release ROS resources without waiting forever."""
@@ -361,7 +361,7 @@ class PolicyActionServer(Node):
         self._runtime.record_policy_error("")
         self._set_diagnostic_event(DiagnosticStatus.OK, "goal_accepted")
         try:
-            self._publish_diagnostics()
+            self._try_publish_diagnostics()
         except BaseException as exc:
             # Admission has already reserved the single-goal slot.  Keep the
             # action callback total so a diagnostics transport failure cannot
@@ -396,7 +396,7 @@ class PolicyActionServer(Node):
 
         self._set_diagnostic_event(DiagnosticStatus.WARN, decision.reason)
         try:
-            self._publish_diagnostics()
+            self._try_publish_diagnostics()
         except BaseException as exc:
             # The cancellation decision is already linearized.  Diagnostics
             # transport must not prevent this callback from returning ACCEPT
@@ -443,7 +443,7 @@ class PolicyActionServer(Node):
                 self._runtime.record_observation(valid=False)
             self._warn_about_joint_state(str(exc))
             if prior_snapshot.joint_state_valid:
-                self._publish_diagnostics()
+                self._try_publish_diagnostics()
             self._execution_wake_event.set()
             return False
 
@@ -474,7 +474,7 @@ class PolicyActionServer(Node):
             elif joint_stamp_ns <= 0:
                 self._observations.record_sync_error("missing_joint_header_stamp")
         if not prior_snapshot.joint_state_received or not prior_snapshot.joint_state_valid:
-            self._publish_diagnostics()
+            self._try_publish_diagnostics()
         self._execution_wake_event.set()
         return create_snapshot or joint_stamp_ns > 0
 
@@ -511,7 +511,7 @@ class PolicyActionServer(Node):
             self._warn_about_image(error)
             self._execution_wake_event.set()
             if not prior_health.image_received or prior_health.image_valid:
-                self._publish_diagnostics()
+                self._try_publish_diagnostics()
             return
 
         with self._command_gate_lock:
@@ -525,7 +525,7 @@ class PolicyActionServer(Node):
             )
         self._execution_wake_event.set()
         if not prior_health.image_received or not prior_health.image_valid:
-            self._publish_diagnostics()
+            self._try_publish_diagnostics()
         if self._validated_image_filter is not None:
             self._validated_image_filter.signalMessage(message)
 
@@ -557,7 +557,7 @@ class PolicyActionServer(Node):
             except Exception:
                 pass
             try:
-                self._publish_diagnostics()
+                self._try_publish_diagnostics()
             except Exception as diagnostics_exc:
                 try:
                     self.get_logger().error(
@@ -613,7 +613,7 @@ class PolicyActionServer(Node):
             self._warn_about_sync(error)
             self._execution_wake_event.set()
             if prior_health.last_sync_error != error:
-                self._publish_diagnostics()
+                self._try_publish_diagnostics()
             return
 
         with self._command_gate_lock:
@@ -622,7 +622,7 @@ class PolicyActionServer(Node):
             return
         self._execution_wake_event.set()
         if not prior_health.synchronized_snapshot_available:
-            self._publish_diagnostics()
+            self._try_publish_diagnostics()
 
     def _positions_in_configured_order(self, message: JointState) -> list[float]:
         if len(message.position) != JOINT_COUNT:
@@ -943,7 +943,7 @@ class PolicyActionServer(Node):
             self._set_diagnostic_event(DiagnosticStatus.OK, "idle")
         self._execution_wake_event.set()
         if not self._shutdown_requested.is_set():
-            self._publish_diagnostics()
+            self._try_publish_diagnostics()
 
     def _wait_for_policy_call(
         self,
@@ -1168,7 +1168,7 @@ class PolicyActionServer(Node):
             else:
                 level = DiagnosticStatus.ERROR
             self._set_diagnostic_event(level, decision.reason)
-            self._publish_diagnostics()
+            self._try_publish_diagnostics()
 
             self._finish_action_state(goal_handle, decision)
             result = ExecutePolicy.Result()
@@ -1221,7 +1221,7 @@ class PolicyActionServer(Node):
         self.get_logger().info(
             f"Starting episode {episode_id} for instruction {request.instruction!r}"
         )
-        self._publish_diagnostics()
+        self._try_publish_diagnostics()
 
         try:
             observation, decision = self._wait_for_snapshot(
@@ -1455,7 +1455,7 @@ class PolicyActionServer(Node):
             snapshot = self._runtime.snapshot()
             if not snapshot.backend_busy and snapshot.runtime_state is RuntimeState.IDLE:
                 self._set_diagnostic_event(DiagnosticStatus.OK, "idle")
-            self._publish_diagnostics()
+            self._try_publish_diagnostics()
 
     def _set_diagnostic_event(self, level: int, message: str) -> None:
         with self._diagnostic_event_lock:
@@ -1465,6 +1465,18 @@ class PolicyActionServer(Node):
     def _diagnostic_event(self) -> tuple[int, str]:
         with self._diagnostic_event_lock:
             return self._diagnostic_event_level, self._diagnostic_event_message
+
+    def _try_publish_diagnostics(self) -> None:
+        """Diagnostics must not prevent Action completion or release admission."""
+        try:
+            self._publish_diagnostics()
+        except Exception as exc:
+            # Logging can itself fail during ROS shutdown. Neither optional
+            # transport is allowed to replace a terminal Action result.
+            try:
+                self.get_logger().error(f"Diagnostic publication failed: {exc}")
+            except Exception:
+                pass
 
     def _publish_diagnostics(self) -> None:
         """Publish one consistent five-component diagnostic snapshot."""

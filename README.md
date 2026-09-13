@@ -1,5 +1,7 @@
 # PolicyBridge-ROS2
 
+Current code and validation boundary: [2026-09-13 fixes and reproduction](docs/REVIEW_FIXES_20260913.md). Historical measurements below retain their original conditions.
+
 **Give robot-policy execution predictable behavior when inference or observations fail.**
 
 Policy inference can finish late, camera data can go stale, and a client can
