@@ -420,3 +420,20 @@ def test_joint_only_health_components_are_explicitly_disabled() -> None:
     assert not health.image_received
     assert not health.synchronized_snapshot_available
     assert health.snapshot_sequence_id == 0
+
+
+def test_newer_snapshot_expires_independently_of_fresh_input_streams():
+    clock = _Clock()
+    store = ObservationStore(
+        observation_mode=RGB_JOINT, image_timeout_seconds=1.0,
+        synchronized_observation_timeout_seconds=1.0,
+        sync_queue_size=10, sync_slop_seconds=0.05, now=clock,
+    )
+    store.commit_snapshot(_snapshot(2, rgb=True))
+    assert store.latest_snapshot(after_sequence_id=1) is not None
+    clock.advance(1.05)
+    # Incoming stamps do not renew an immutable synchronized observation.
+    store.record_joint_stamp(2_000_000_000)
+    assert store.latest_snapshot(after_sequence_id=1) is None
+    store.commit_snapshot(_snapshot(3, rgb=True))
+    assert store.latest_snapshot(after_sequence_id=2) is not None
